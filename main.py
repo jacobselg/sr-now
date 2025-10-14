@@ -144,6 +144,17 @@ def transcribe(file_path):
         )
     return transcript.text
 
+@app.route('/', methods=['GET'])
+def get_latest_summary():
+    """Get the latest summary from the continuous processing."""
+    global latest_summary, last_updated
+    
+    return jsonify({
+        'channel': 'P1',
+        'summary': latest_summary,
+        'updated': last_updated.isoformat() if last_updated else None,
+    })
+
 def summarize(text, use_context=True):
     messages = [
         {
