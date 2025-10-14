@@ -12,9 +12,38 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from flask import Flask, jsonify
 from dotenv import load_dotenv
+import redis
+from urllib.parse import urlparse
 
 # Load environment variables from .env file
 load_dotenv()
+
+# Initialize Redis connection
+redis_url = os.environ.get('REDIS_URL')
+redis_client = None
+
+if redis_url:
+    try:
+        print(f"🔄 Setting up Redis client for: {redis_url.split('@')[1] if '@' in redis_url else redis_url}")
+        print(f"🔍 Full Redis URL format: redis://[user]:[pass]@[host]:[port]")
+        
+        # Create Redis client with shorter timeouts - don't test connection yet
+        redis_client = redis.from_url(
+            redis_url, 
+            decode_responses=True,
+            socket_connect_timeout=5,  # Shorter timeout
+            socket_timeout=5,          # Shorter timeout
+            retry_on_timeout=True,
+            health_check_interval=30
+        )
+        print("✅ Redis client created successfully")
+        
+    except Exception as e:
+        print(f"⚠️ Error setting up Redis client: {e}")
+        print(f"🔍 Redis URL was: {redis_url[:20]}...")
+        redis_client = None
+else:
+    print("⚠️ No REDIS_URL found in environment variables")
 
 # Initialize OpenAI client - API key should be set in OPENAI_API_KEY environment variable
 client = OpenAI()
@@ -29,47 +58,118 @@ processing_status = "Starting..."
 processing_error = None
 
 STREAM_URL = "https://www.sverigesradio.se/topsy/direkt/srapi/132.mp3"
-TRANSCRIPTIONS_FILE = "history.json"
+REDIS_KEY_PREFIX = "sr_now:transcriptions"
+REDIS_SUMMARY_KEY = "sr_now:latest_summary"
 
-def load_transcription_history():
-    if not os.path.exists(TRANSCRIPTIONS_FILE):
-        return []
-    
+def get_latest_summary_from_redis():
+    """Get the latest summary from Redis."""
+    if not redis_client:
+        return None
+        
     try:
-        with open(TRANSCRIPTIONS_FILE, 'r', encoding='utf-8') as f:
-            return json.load(f)
-    except (json.JSONDecodeError, IOError) as e:
-        print(f"⚠️ Could not load transcription history: {e}")
-        return []
+        summary_data = redis_client.get(REDIS_SUMMARY_KEY)
+        if summary_data:
+            return json.loads(summary_data)
+        return None
+    except Exception as e:
+        print(f"⚠️ Could not load latest summary from Redis: {e}")
+        return None
 
-def save_transcription(text, timestamp=None):
+def save_latest_summary_to_redis(summary, timestamp=None):
+    """Save the latest summary to Redis."""
+    if not redis_client:
+        return
+        
     if timestamp is None:
         timestamp = datetime.now()
     
-    # Load existing history
-    history = load_transcription_history()
-    
-    # Add new entry
-    new_entry = {
-        "timestamp": timestamp.isoformat(),
-        "text": text.strip()
-    }
-    
-    history.append(new_entry)
-    
-    # Keep only last 24 hours of transcriptions to avoid file bloat
-    cutoff_time = datetime.now() - timedelta(hours=24)
-    history = [
-        entry for entry in history 
-        if datetime.fromisoformat(entry["timestamp"]) > cutoff_time
-    ]
-    
-    # Save back to file
     try:
-        with open(TRANSCRIPTIONS_FILE, 'w', encoding='utf-8') as f:
-            json.dump(history, f, ensure_ascii=False, indent=2)
-    except IOError as e:
-        pass  # Silently handle save errors
+        summary_data = {
+            "summary": summary,
+            "updated": timestamp.isoformat(),
+            "channel": "P1"
+        }
+        
+        # Save to Redis with no expiration (persist until overwritten)
+        redis_client.set(REDIS_SUMMARY_KEY, json.dumps(summary_data))
+        
+    except Exception as e:
+        print(f"⚠️ Could not save latest summary to Redis: {e}")
+
+def load_transcription_history():
+    """Load transcription history from Redis."""
+    if not redis_client:
+        return []
+        
+    try:
+        # Get all transcription entries from Redis
+        keys = redis_client.keys(f"{REDIS_KEY_PREFIX}:*")
+        if not keys:
+            return []
+        
+        history = []
+        for key in keys:
+            entry_data = redis_client.get(key)
+            if entry_data:
+                entry = json.loads(entry_data)
+                history.append(entry)
+        
+        # Sort by timestamp
+        history.sort(key=lambda x: x['timestamp'])
+        return history
+        
+    except Exception as e:
+        print(f"⚠️ Could not load transcription history from Redis: {e}")
+        return []
+
+def save_transcription(text, timestamp=None):
+    """Save transcription to Redis with automatic cleanup."""
+    if not redis_client:
+        return
+        
+    if timestamp is None:
+        timestamp = datetime.now()
+    
+    try:
+        # Create entry
+        new_entry = {
+            "timestamp": timestamp.isoformat(),
+            "text": text.strip()
+        }
+        
+        # Generate unique key with timestamp
+        key = f"{REDIS_KEY_PREFIX}:{int(timestamp.timestamp())}"
+        
+        # Save to Redis with 24-hour expiration
+        redis_client.setex(key, 86400, json.dumps(new_entry))
+        
+        # Clean up old entries (older than 24 hours)
+        cleanup_old_transcriptions()
+        
+    except Exception as e:
+        print(f"⚠️ Could not save transcription to Redis: {e}")
+
+def cleanup_old_transcriptions():
+    """Remove transcriptions older than 24 hours from Redis."""
+    if not redis_client:
+        return
+        
+    try:
+        cutoff_time = datetime.now() - timedelta(hours=24)
+        cutoff_timestamp = int(cutoff_time.timestamp())
+        
+        keys = redis_client.keys(f"{REDIS_KEY_PREFIX}:*")
+        for key in keys:
+            # Extract timestamp from key
+            try:
+                key_timestamp = int(key.split(':')[-1])
+                if key_timestamp < cutoff_timestamp:
+                    redis_client.delete(key)
+            except (ValueError, IndexError):
+                continue
+                
+    except Exception as e:
+        print(f"⚠️ Could not cleanup old transcriptions: {e}")
 
 def get_recent_context(hours=2):
     history = load_transcription_history()
@@ -150,9 +250,14 @@ def transcribe(file_path):
 
 @app.route('/', methods=['GET'])
 def get_latest_summary():
-    """Get the latest summary from the continuous processing."""
-    global latest_summary, last_updated
+    """Get the latest summary from Redis."""
+    # Try to get from Redis first
+    redis_summary = get_latest_summary_from_redis()
+    if redis_summary:
+        return jsonify(redis_summary)
     
+    # Fallback to global variables if Redis is empty
+    global latest_summary, last_updated
     return jsonify({
         'channel': 'P1',
         'summary': latest_summary,
@@ -227,6 +332,9 @@ def continuous_processing():
             latest_summary = summary
             last_updated = datetime.now()
             
+            # Save summary to Redis for persistence
+            save_latest_summary_to_redis(summary, last_updated)
+            
             # Display only the summary
             print(f"📻 {summary}")
             
@@ -234,8 +342,12 @@ def continuous_processing():
             # Log errors for debugging but continue processing
             print(f"❌ Processing error: {str(e)}")
             # Set fallback summary
-            latest_summary = f"Processing error occurred: {str(e)[:100]}"
+            error_message = f"Processing error occurred: {str(e)[:100]}"
+            latest_summary = error_message
             last_updated = datetime.now()
+            
+            # Save error summary to Redis for persistence
+            save_latest_summary_to_redis(error_message, last_updated)
             
         finally:
             # Clean up temporary file
@@ -249,6 +361,31 @@ def continuous_processing():
 if __name__ == "__main__":
     # Set up signal handler for graceful shutdown
     signal.signal(signal.SIGINT, signal_handler)
+
+    print("Hello, SR-Now here! 👋")
+    
+    # Test Redis connection
+    if redis_client:
+        try:
+            print("🔄 Testing Redis connection...")
+            
+            # Simple ping test with the client's built-in timeout
+            redis_client.ping()
+            print("✅ Redis connection successful")
+            
+            # Initialize global variables from Redis if available
+            redis_summary = get_latest_summary_from_redis()
+            if redis_summary:
+                latest_summary = redis_summary.get('summary')
+                last_updated = datetime.fromisoformat(redis_summary.get('updated')) if redis_summary.get('updated') else None
+                print(f"📻 Loaded previous summary from Redis: {latest_summary}")
+                
+        except Exception as e:
+            print(f"❌ Redis connection test failed: {e}")
+            print("⚠️ Continuing without Redis - summaries will not persist across restarts")
+            redis_client = None
+    else:
+        print("⚠️ No Redis connection available - summaries will not persist across restarts")
     
     # Get port from environment variable (Railway sets this)
     port = int(os.environ.get('PORT', 5001))
