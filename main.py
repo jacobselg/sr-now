@@ -5,6 +5,7 @@ import subprocess
 import os
 import json
 import sys
+import pydub
 import time
 import signal
 import threading
@@ -260,4 +261,4 @@ if __name__ == "__main__":
     time.sleep(1)
     
     # Run Flask app
-    app.run(host='0.0.0.0', port=port, debug=False)
+    #app.run(host='0.0.0.0', port=port, debug=False)
