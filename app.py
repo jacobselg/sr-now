@@ -245,8 +245,11 @@ if __name__ == "__main__":
     # Set up signal handler for graceful shutdown
     signal.signal(signal.SIGINT, signal_handler)
     
+    # Get port from environment variable (Railway sets this)
+    port = int(os.environ.get('PORT', 5001))
+    
     print("🚀 Starting SR-Now with API endpoint...")
-    print("📡 API available at: http://localhost:5001/api/latest")
+    print(f"📡 API available at: http://localhost:{port}/api/latest")
     print("🎧 Continuous processing starting...")
     
     # Start continuous processing in a background thread
@@ -257,4 +260,4 @@ if __name__ == "__main__":
     time.sleep(1)
     
     # Run Flask app
-    app.run(host='0.0.0.0', port=5001, debug=False)
+    app.run(host='0.0.0.0', port=port, debug=False)

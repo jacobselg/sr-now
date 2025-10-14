@@ -1,7 +1,19 @@
 # nixpacks.toml
 
+[providers]
+python = "3.11"
+
 [phases.setup]
 nixPkgs = ["ffmpeg"]
 
+[phases.install]
+cmds = ["pip install -r requirements.txt"]
+
+[phases.build]
+cmds = ["echo 'Build phase complete'"]
+
 [start]
-cmd = "gunicorn main:app"
+cmd = "python app.py"
+
+[variables]
+PORT = "5001"
