@@ -90,10 +90,10 @@ def get_recent_context(hours=2):
     
     return "\n".join(context_parts)
 
-def get_audio_chunk(seconds=30, dir="/tmp"):
+def get_audio_chunk(seconds=30):
     try:
         # Create temporary file that persists after the context manager
-        tmp = tempfile.NamedTemporaryFile(suffix=".wav", dir=dir, delete=False)
+        tmp = tempfile.NamedTemporaryFile(suffix=".wav", delete=False)
         tmp_path = tmp.name
         tmp.close()
 
@@ -178,16 +178,6 @@ def summarize(text, use_context=True):
     except Exception as e:
         return f"Transkribering: {text[:100]}..."
 
-@app.route('/', methods=['GET'])
-def get_latest_summary():
-    """Get the latest summary from the continuous processing."""
-    global latest_summary, last_updated
-    
-    return jsonify({
-        'channel': 'P1',
-        'summary': latest_summary,
-        'updated': last_updated.isoformat() if last_updated else None,
-    })
 
 def signal_handler(signum, frame):
     """Handle graceful shutdown on Ctrl+C."""
@@ -249,7 +239,7 @@ if __name__ == "__main__":
     port = int(os.environ.get('PORT', 5001))
     
     print("🚀 Starting SR-Now with API endpoint...")
-    print(f"📡 API available at: http://localhost:{port}/api/latest")
+    print(f"📡 API available at: http://localhost:{port}/")
     print("🎧 Continuous processing starting...")
     
     # Start continuous processing in a background thread
@@ -260,4 +250,4 @@ if __name__ == "__main__":
     time.sleep(1)
     
     # Run Flask app
-    #app.run(host='0.0.0.0', port=port, debug=False)
+    app.run(host='0.0.0.0', port=port, debug=False)
