@@ -178,7 +178,7 @@ def summarize(text, use_context=True):
     except Exception as e:
         return f"Transkribering: {text[:100]}..."
 
-@app.route('/api/latest', methods=['GET'])
+@app.route('/', methods=['GET'])
 def get_latest_summary():
     """Get the latest summary from the continuous processing."""
     global latest_summary, last_updated
