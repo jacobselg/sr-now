@@ -16,4 +16,4 @@ cmds = ["echo 'Build phase complete'"]
 cmd = "python app.py"
 
 [variables]
-PORT = "5001"
+PORT = "5000"
