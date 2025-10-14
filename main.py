@@ -11,6 +11,10 @@ import threading
 from datetime import datetime, timedelta
 from pathlib import Path
 from flask import Flask, jsonify
+from dotenv import load_dotenv
+
+# Load environment variables from .env file
+load_dotenv()
 
 # Initialize OpenAI client - API key should be set in OPENAI_API_KEY environment variable
 client = OpenAI()
@@ -206,7 +210,7 @@ def continuous_processing():
             print("🎙️ Starting audio capture...")
             
             # Record and transcribe new audio
-            chunk_path = get_audio_chunk(int(os.environ.get("LISTENING_LENGTH", 30)))
+            chunk_path = get_audio_chunk(int(os.environ.get("RECORDING_LENGTH", 30)))
             print("✅ Audio captured, transcribing...")
             
             text = transcribe(chunk_path)
@@ -239,8 +243,8 @@ def continuous_processing():
                 os.unlink(chunk_path)
         
         # Wait for the update interval before next iteration
-        print(f"⏳ Waiting {os.environ.get('SLEEP_LENGTH', 900)} seconds for next capture...")
-        time.sleep(int(os.environ.get("SLEEP_LENGTH", 900)))
+        print(f"⏳ Waiting {os.environ.get('RECORDING_INTERVAL', 900)} seconds for next capture...")
+        time.sleep(int(os.environ.get("RECORDING_INTERVAL", 900)))
 
 if __name__ == "__main__":
     # Set up signal handler for graceful shutdown
