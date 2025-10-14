@@ -1,0 +1,7 @@
+# nixpacks.toml
+
+[phases.setup]
+nixPkgs = ["ffmpeg"]
+
+[start]
+cmd = "gunicorn main:app"
