@@ -25,7 +25,7 @@ processing_status = "Starting..."
 processing_error = None
 
 STREAM_URL = "https://www.sverigesradio.se/topsy/direkt/srapi/132.mp3"
-TRANSCRIPTIONS_FILE = "transcriptions_history.json"
+TRANSCRIPTIONS_FILE = "history.json"
 
 def load_transcription_history():
     if not os.path.exists(TRANSCRIPTIONS_FILE):
