@@ -13,7 +13,7 @@ cmds = ["pip install -r requirements.txt"]
 cmds = ["echo 'Build phase complete'"]
 
 [start]
-cmd = "python app.py"
+cmd = "python main.py"
 
 [variables]
 PORT = "5000"
