@@ -5,7 +5,6 @@ import subprocess
 import os
 import json
 import sys
-import pydub
 import time
 import signal
 import threading
