@@ -273,7 +273,7 @@ def get_latest_summary():
             ]
             
             # Sort by timestamp in descending order (latest first)
-            recent_transcriptions.sort(key=lambda x: x['time_formatted'], reverse=True)
+            recent_transcriptions.sort(key=lambda x: x['time'], reverse=True)
     except Exception as e:
         print(f"⚠️ Could not load transcriptions for summary endpoint: {e}")
     
