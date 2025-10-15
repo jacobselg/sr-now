@@ -393,106 +393,14 @@ def get_all_channels_summary():
             channel_data = {
                 'channel': channel_name,
                 'summary': channel_summaries.get(channel_name),
-                'summary_updated': channel_last_updated.get(channel_name).isoformat() if channel_last_updated.get(channel_name) else None,
+                'summaryUpdated': channel_last_updated.get(channel_name).isoformat() if channel_last_updated.get(channel_name) else None,
+                'summaryUpdateFrequency': channel.get('recording_interval'),
                 'transcriptions': recent_transcriptions
             }
         
         channels_array.append(channel_data)
     
     return jsonify(channels_array)
-
-@app.route('/channels/<channel_name>', methods=['GET'])
-def get_channel_summary(channel_name):
-    """Get the latest summary and recent transcriptions for a specific channel."""
-    # Validate channel exists
-    if not any(ch['name'] == channel_name for ch in CHANNELS):
-        return jsonify({'error': f'Channel {channel_name} not found'}), 404
-    
-    # Try to get summary from Redis first
-    redis_summary = get_latest_summary_from_redis(channel_name)
-    
-    # Get recent transcriptions
-    recent_transcriptions = []
-    try:
-        # Get transcriptions for this channel
-        history = load_transcription_history(channel_name)
-        
-        if history:
-            # Filter for last hour
-            cutoff_time = datetime.now(timezone.utc) - timedelta(hours=1)
-            recent_transcriptions = [
-                {
-                    'text': entry['text'],
-                    'time': entry['timestamp']
-                }
-                for entry in history 
-                if parse_timestamp_safely(entry['timestamp']) > cutoff_time
-            ]
-            
-            # Sort by timestamp in descending order (latest first)
-            recent_transcriptions.sort(key=lambda x: x['time'], reverse=True)
-    except Exception as e:
-        print(f"⚠️ Could not load transcriptions for {channel_name}: {e}")
-    
-    # Prepare response
-    if redis_summary:
-        response_data = redis_summary.copy()
-        # Rename 'updated' field to 'summary_updated' for consistency
-        if 'updated' in response_data:
-            response_data['summary_updated'] = response_data.pop('updated')
-        response_data['transcriptions'] = recent_transcriptions
-        return jsonify(response_data)
-    
-    # Fallback to global variables if Redis is empty
-    return jsonify({
-        'channel': channel_name,
-        'summary': channel_summaries.get(channel_name),
-        'summary_updated': channel_last_updated.get(channel_name).isoformat() if channel_last_updated.get(channel_name) else None,
-        'transcriptions': recent_transcriptions
-    })
-
-@app.route('/transcriptions/<channel_name>', methods=['GET'])
-def get_channel_transcriptions(channel_name):
-    """Get all transcriptions from the last hour for a specific channel."""
-    # Validate channel exists
-    if not any(ch['name'] == channel_name for ch in CHANNELS):
-        return jsonify({'error': f'Channel {channel_name} not found'}), 404
-        
-    try:
-        # Get transcriptions for this channel
-        history = load_transcription_history(channel_name)
-        
-        if not history:
-            return jsonify({
-                'transcriptions': [],
-                'message': f'No transcriptions found for {channel_name}'
-            })
-        
-        # Filter for last hour
-        cutoff_time = datetime.now(timezone.utc) - timedelta(hours=1)
-        recent_transcriptions = [
-            {
-                'text': entry['text'],
-                'time_formatted': parse_timestamp_safely(entry['timestamp']).strftime('%H:%M:%S')
-            }
-            for entry in history 
-            if parse_timestamp_safely(entry['timestamp']) > cutoff_time
-        ]
-        
-        # Sort by timestamp in descending order (latest first)
-        recent_transcriptions.sort(key=lambda x: x['time_formatted'], reverse=True)
-        
-        return jsonify({
-            'transcriptions': recent_transcriptions,
-            'channel': channel_name
-        })
-        
-    except Exception as e:
-        return jsonify({
-            'error': f'Failed to retrieve transcriptions for {channel_name}: {str(e)}',
-            'transcriptions': [],
-            'count': 0
-        }), 500
 
 def summarize(channel_name, latest=None):
     messages = [
