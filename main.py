@@ -292,7 +292,7 @@ def transcribe(file_path):
 @app.route('/', methods=['GET'])
 def get_all_channels_summary():
     """Get the latest summary and recent transcriptions for all channels."""
-    channels_data = {}
+    channels_array = []
     
     for channel in CHANNELS:
         channel_name = channel["name"]
@@ -339,9 +339,9 @@ def get_all_channels_summary():
                 'transcriptions': recent_transcriptions
             }
         
-        channels_data[channel_name] = channel_data
+        channels_array.append(channel_data)
     
-    return jsonify(channels_data)
+    return jsonify(channels_array)
 
 @app.route('/channels/<channel_name>', methods=['GET'])
 def get_channel_summary(channel_name):
