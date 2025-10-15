@@ -291,6 +291,9 @@ def get_recent_transcriptions():
             if datetime.fromisoformat(entry['timestamp']) > cutoff_time
         ]
         
+        # Sort by timestamp in descending order (latest first)
+        recent_transcriptions.sort(key=lambda x: x['timestamp'], reverse=True)
+        
         return jsonify({
             'transcriptions': recent_transcriptions,
             'count': len(recent_transcriptions),
