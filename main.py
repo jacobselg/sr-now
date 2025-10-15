@@ -266,7 +266,7 @@ def get_latest_summary():
             recent_transcriptions = [
                 {
                     'text': entry['text'],
-                    'time_formatted': datetime.fromisoformat(entry['timestamp']).strftime('%H:%M:%S')
+                    'time': entry['timestamp']
                 }
                 for entry in history 
                 if datetime.fromisoformat(entry['timestamp']) > cutoff_time
