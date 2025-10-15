@@ -8,7 +8,7 @@ import sys
 import time
 import signal
 import threading
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from flask import Flask, jsonify
 from dotenv import load_dotenv
@@ -92,16 +92,16 @@ def save_latest_summary_to_redis(channel_name, summary, timestamp=None):
         return
         
     if timestamp is None:
-        timestamp = datetime.now()
+        timestamp = datetime.now(timezone.utc)
     
     # Ensure timestamp is a datetime object
     if isinstance(timestamp, str):
         try:
             timestamp = datetime.fromisoformat(timestamp)
         except ValueError:
-            timestamp = datetime.now()
+            timestamp = datetime.now(timezone.utc)
     elif not isinstance(timestamp, datetime):
-        timestamp = datetime.now()
+        timestamp = datetime.now(timezone.utc)
     
     try:
         summary_data = {
@@ -154,16 +154,16 @@ def save_transcription(channel_name, text, timestamp=None):
         return
         
     if timestamp is None:
-        timestamp = datetime.now()
+        timestamp = datetime.now(timezone.utc)
     
     # Ensure timestamp is a datetime object
     if isinstance(timestamp, str):
         try:
             timestamp = datetime.fromisoformat(timestamp)
         except ValueError:
-            timestamp = datetime.now()
+            timestamp = datetime.now(timezone.utc)
     elif not isinstance(timestamp, datetime):
-        timestamp = datetime.now()
+        timestamp = datetime.now(timezone.utc)
     
     try:
         # Create entry
@@ -191,7 +191,7 @@ def cleanup_old_transcriptions(channel_name=None):
         return
         
     try:
-        cutoff_time = datetime.now() - timedelta(hours=24)
+        cutoff_time = datetime.now(timezone.utc) - timedelta(hours=24)
         cutoff_timestamp = int(cutoff_time.timestamp())
         
         if channel_name:
@@ -218,7 +218,7 @@ def get_recent_context(channel_name, hours=2):
     if not history:
         return ""
     
-    cutoff_time = datetime.now() - timedelta(hours=hours)
+    cutoff_time = datetime.now(timezone.utc) - timedelta(hours=hours)
     recent_entries = [
         entry for entry in history 
         if datetime.fromisoformat(entry["timestamp"]) > cutoff_time
@@ -308,7 +308,7 @@ def get_all_channels_summary():
             
             if history:
                 # Filter for last hour
-                cutoff_time = datetime.now() - timedelta(hours=1)
+                cutoff_time = datetime.now(timezone.utc) - timedelta(hours=1)
                 recent_transcriptions = [
                     {
                         'text': entry['text'],
@@ -361,7 +361,7 @@ def get_channel_summary(channel_name):
         
         if history:
             # Filter for last hour
-            cutoff_time = datetime.now() - timedelta(hours=1)
+            cutoff_time = datetime.now(timezone.utc) - timedelta(hours=1)
             recent_transcriptions = [
                 {
                     'text': entry['text'],
@@ -411,7 +411,7 @@ def get_channel_transcriptions(channel_name):
             })
         
         # Filter for last hour
-        cutoff_time = datetime.now() - timedelta(hours=1)
+        cutoff_time = datetime.now(timezone.utc) - timedelta(hours=1)
         recent_transcriptions = [
             {
                 'text': entry['text'],
@@ -501,13 +501,16 @@ def process_channel(channel):
             summary = summarize(channel_name, text, use_context=True)
             print(f"✅ Summary generated for {channel_name}")
             
+            # Use consistent timezone-aware timestamp for both global variables and Redis
+            update_time = datetime.now(timezone.utc)
+            
             # Update global variables
             channel_summaries[channel_name] = summary
-            channel_last_updated[channel_name] = datetime.now()
+            channel_last_updated[channel_name] = update_time
             processing_status[channel_name] = "Running"
             
-            # Save summary to Redis for persistence
-            save_latest_summary_to_redis(channel_name, summary)
+            # Save summary to Redis for persistence with same timestamp
+            save_latest_summary_to_redis(channel_name, summary, update_time)
             
             # Display only the summary
             print(f"📻 {channel_name}: {summary}")
@@ -515,14 +518,18 @@ def process_channel(channel):
         except Exception as e:
             # Log errors for debugging but continue processing
             print(f"❌ Processing error for {channel_name}: {str(e)}")
+            
+            # Use consistent timezone-aware timestamp for error handling
+            error_time = datetime.now(timezone.utc)
+            
             # Set fallback summary
             error_message = f"Processing error occurred: {str(e)[:100]}"
             channel_summaries[channel_name] = error_message
-            channel_last_updated[channel_name] = datetime.now()
+            channel_last_updated[channel_name] = error_time
             processing_status[channel_name] = f"Error: {str(e)[:50]}"
             
-            # Save error summary to Redis for persistence
-            save_latest_summary_to_redis(channel_name, error_message)
+            # Save error summary to Redis for persistence with same timestamp
+            save_latest_summary_to_redis(channel_name, error_message, error_time)
             
         finally:
             # Clean up temporary file
