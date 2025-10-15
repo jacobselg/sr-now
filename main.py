@@ -155,7 +155,7 @@ def cleanup_old_transcriptions():
         return
         
     try:
-        cutoff_time = datetime.now() - timedelta(hours=24)
+        cutoff_time = datetime.now() - timedelta(minutes=30)
         cutoff_timestamp = int(cutoff_time.timestamp())
         
         keys = redis_client.keys(f"{REDIS_KEY_PREFIX}:*")
@@ -171,13 +171,13 @@ def cleanup_old_transcriptions():
     except Exception as e:
         print(f"⚠️ Could not cleanup old transcriptions: {e}")
 
-def get_recent_context(hours=2):
+def get_recent_context(minutes=15):
     history = load_transcription_history()
     
     if not history:
         return ""
-    
-    cutoff_time = datetime.now() - timedelta(hours=hours)
+
+    cutoff_time = datetime.now() - timedelta(minutes)
     recent_entries = [
         entry for entry in history 
         if datetime.fromisoformat(entry["timestamp"]) > cutoff_time
@@ -302,7 +302,7 @@ def summarize(text, use_context=True):
     
     # Add context if available and requested
     if use_context:
-        context = get_recent_context(hours=2)
+        context = get_recent_context(minutes=30)
         if context:
             messages.append({
                 "role": "user",
