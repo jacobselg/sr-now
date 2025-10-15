@@ -420,9 +420,10 @@ def summarize(channel_name, latest=None):
     
     try:
         response = client.chat.completions.create(
-            model="gpt-5-nano-2025-08-07",
+            model="gpt-4o-mini",
             messages=messages,
-            max_completion_tokens=50,
+            max_tokens=100,
+            temperature=0.8
         )
         return response.choices[0].message.content.strip()
     
