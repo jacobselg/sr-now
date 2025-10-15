@@ -51,59 +51,85 @@ client = OpenAI()
 # Initialize Flask app
 app = Flask(__name__)
 
-# Global variables to store latest summary
-latest_summary = None
-last_updated = None
-processing_status = "Starting..."
-processing_error = None
+# Global variables to store latest summaries for all channels
+channel_summaries = {}
+channel_last_updated = {}
+processing_status = {}
 
-STREAM_URL = "https://www.sverigesradio.se/topsy/direkt/srapi/132.mp3"
+# Channel configuration - can be moved to environment variables later
+CHANNELS = [
+    {
+        "name": "P1",
+        "stream_url": "https://edge2.sr.se/p1-mp3-96"
+    },
+    {
+        "name": "P3",
+        "stream_url": "https://edge2.sr.se/p3-mp3-96"
+    }
+]
+
 REDIS_KEY_PREFIX = "sr_now:transcriptions"
-REDIS_SUMMARY_KEY = "sr_now:latest_summary"
+REDIS_SUMMARY_KEY_PREFIX = "sr_now:summary"
 
-def get_latest_summary_from_redis():
-    """Get the latest summary from Redis."""
+def get_latest_summary_from_redis(channel_name):
+    """Get the latest summary from Redis for a specific channel."""
     if not redis_client:
         return None
         
     try:
-        summary_data = redis_client.get(REDIS_SUMMARY_KEY)
+        redis_key = f"{REDIS_SUMMARY_KEY_PREFIX}:{channel_name}"
+        summary_data = redis_client.get(redis_key)
         if summary_data:
             return json.loads(summary_data)
         return None
     except Exception as e:
-        print(f"⚠️ Could not load latest summary from Redis: {e}")
+        print(f"⚠️ Could not load latest summary for {channel_name} from Redis: {e}")
         return None
 
-def save_latest_summary_to_redis(summary, timestamp=None):
-    """Save the latest summary to Redis."""
+def save_latest_summary_to_redis(channel_name, summary, timestamp=None):
+    """Save the latest summary to Redis for a specific channel."""
     if not redis_client:
         return
         
     if timestamp is None:
         timestamp = datetime.now()
     
+    # Ensure timestamp is a datetime object
+    if isinstance(timestamp, str):
+        try:
+            timestamp = datetime.fromisoformat(timestamp)
+        except ValueError:
+            timestamp = datetime.now()
+    elif not isinstance(timestamp, datetime):
+        timestamp = datetime.now()
+    
     try:
         summary_data = {
             "summary": summary,
             "updated": timestamp.isoformat(),
-            "channel": "P1"
+            "channel": channel_name
         }
         
+        redis_key = f"{REDIS_SUMMARY_KEY_PREFIX}:{channel_name}"
         # Save to Redis with no expiration (persist until overwritten)
-        redis_client.set(REDIS_SUMMARY_KEY, json.dumps(summary_data))
+        redis_client.set(redis_key, json.dumps(summary_data))
         
     except Exception as e:
-        print(f"⚠️ Could not save latest summary to Redis: {e}")
+        print(f"⚠️ Could not save latest summary for {channel_name} to Redis: {e}")
 
-def load_transcription_history():
-    """Load transcription history from Redis."""
+def load_transcription_history(channel_name=None):
+    """Load transcription history from Redis for a specific channel or all channels."""
     if not redis_client:
         return []
         
     try:
-        # Get all transcription entries from Redis
-        keys = redis_client.keys(f"{REDIS_KEY_PREFIX}:*")
+        # Get transcription entries for specific channel or all channels
+        if channel_name:
+            pattern = f"{REDIS_KEY_PREFIX}:{channel_name}:*"
+        else:
+            pattern = f"{REDIS_KEY_PREFIX}:*"
+            
+        keys = redis_client.keys(pattern)
         if not keys:
             return []
         
@@ -122,45 +148,60 @@ def load_transcription_history():
         print(f"⚠️ Could not load transcription history from Redis: {e}")
         return []
 
-def save_transcription(text, timestamp=None):
-    """Save transcription to Redis with automatic cleanup."""
+def save_transcription(channel_name, text, timestamp=None):
+    """Save transcription to Redis with automatic cleanup for a specific channel."""
     if not redis_client:
         return
         
     if timestamp is None:
         timestamp = datetime.now()
     
+    # Ensure timestamp is a datetime object
+    if isinstance(timestamp, str):
+        try:
+            timestamp = datetime.fromisoformat(timestamp)
+        except ValueError:
+            timestamp = datetime.now()
+    elif not isinstance(timestamp, datetime):
+        timestamp = datetime.now()
+    
     try:
         # Create entry
         new_entry = {
             "timestamp": timestamp.isoformat(),
-            "text": text.strip()
+            "text": text.strip(),
+            "channel": channel_name
         }
         
-        # Generate unique key with timestamp
-        key = f"{REDIS_KEY_PREFIX}:{int(timestamp.timestamp())}"
+        # Generate unique key with channel and timestamp
+        key = f"{REDIS_KEY_PREFIX}:{channel_name}:{int(timestamp.timestamp())}"
         
         # Save to Redis with 24-hour expiration
         redis_client.setex(key, 86400, json.dumps(new_entry))
         
         # Clean up old entries (older than 24 hours)
-        cleanup_old_transcriptions()
+        cleanup_old_transcriptions(channel_name)
         
     except Exception as e:
-        print(f"⚠️ Could not save transcription to Redis: {e}")
+        print(f"⚠️ Could not save transcription for {channel_name} to Redis: {e}")
 
-def cleanup_old_transcriptions():
-    """Remove transcriptions older than 24 hours from Redis."""
+def cleanup_old_transcriptions(channel_name=None):
+    """Remove transcriptions older than 24 hours from Redis for a specific channel or all channels."""
     if not redis_client:
         return
         
     try:
-        cutoff_time = datetime.now() - timedelta(minutes=30)
+        cutoff_time = datetime.now() - timedelta(hours=24)
         cutoff_timestamp = int(cutoff_time.timestamp())
         
-        keys = redis_client.keys(f"{REDIS_KEY_PREFIX}:*")
+        if channel_name:
+            pattern = f"{REDIS_KEY_PREFIX}:{channel_name}:*"
+        else:
+            pattern = f"{REDIS_KEY_PREFIX}:*"
+            
+        keys = redis_client.keys(pattern)
         for key in keys:
-            # Extract timestamp from key
+            # Extract timestamp from key (last part after final colon)
             try:
                 key_timestamp = int(key.split(':')[-1])
                 if key_timestamp < cutoff_timestamp:
@@ -171,13 +212,13 @@ def cleanup_old_transcriptions():
     except Exception as e:
         print(f"⚠️ Could not cleanup old transcriptions: {e}")
 
-def get_recent_context(minutes=15):
-    history = load_transcription_history()
+def get_recent_context(channel_name, hours=2):
+    history = load_transcription_history(channel_name)
     
     if not history:
         return ""
-
-    cutoff_time = datetime.now() - timedelta(minutes)
+    
+    cutoff_time = datetime.now() - timedelta(hours=hours)
     recent_entries = [
         entry for entry in history 
         if datetime.fromisoformat(entry["timestamp"]) > cutoff_time
@@ -194,7 +235,7 @@ def get_recent_context(minutes=15):
     
     return "\n".join(context_parts)
 
-def get_audio_chunk(seconds=30):
+def get_audio_chunk(stream_url, seconds=30):
     try:
         # Create temporary file that persists after the context manager
         tmp = tempfile.NamedTemporaryFile(suffix=".wav", delete=False)
@@ -204,7 +245,7 @@ def get_audio_chunk(seconds=30):
         # Improved ffmpeg command for better live stream handling
         cmd = [
             "ffmpeg", "-y",
-            "-i", STREAM_URL,
+            "-i", stream_url,
             "-t", str(seconds),
             "-ac", "1",           # Mono audio
             "-ar", "16000",       # 16kHz sample rate (optimal for Whisper)
@@ -249,16 +290,74 @@ def transcribe(file_path):
     return transcript.text
 
 @app.route('/', methods=['GET'])
-def get_latest_summary():
-    """Get the latest summary and recent transcriptions from Redis."""
+def get_all_channels_summary():
+    """Get the latest summary and recent transcriptions for all channels."""
+    channels_data = {}
+    
+    for channel in CHANNELS:
+        channel_name = channel["name"]
+        
+        # Try to get summary from Redis first
+        redis_summary = get_latest_summary_from_redis(channel_name)
+        
+        # Get recent transcriptions
+        recent_transcriptions = []
+        try:
+            # Get transcriptions for this channel
+            history = load_transcription_history(channel_name)
+            
+            if history:
+                # Filter for last hour
+                cutoff_time = datetime.now() - timedelta(hours=1)
+                recent_transcriptions = [
+                    {
+                        'text': entry['text'],
+                        'time': entry['timestamp']
+                    }
+                    for entry in history 
+                    if datetime.fromisoformat(entry['timestamp']) > cutoff_time
+                ]
+                
+                # Sort by timestamp in descending order (latest first)
+                recent_transcriptions.sort(key=lambda x: x['time'], reverse=True)
+        except Exception as e:
+            print(f"⚠️ Could not load transcriptions for {channel_name}: {e}")
+        
+        # Prepare channel data
+        if redis_summary:
+            channel_data = redis_summary.copy()
+            # Rename 'updated' field to 'summary_updated' for consistency
+            if 'updated' in channel_data:
+                channel_data['summary_updated'] = channel_data.pop('updated')
+            channel_data['transcriptions'] = recent_transcriptions
+        else:
+            # Fallback to global variables if Redis is empty
+            channel_data = {
+                'channel': channel_name,
+                'summary': channel_summaries.get(channel_name),
+                'summary_updated': channel_last_updated.get(channel_name).isoformat() if channel_last_updated.get(channel_name) else None,
+                'transcriptions': recent_transcriptions
+            }
+        
+        channels_data[channel_name] = channel_data
+    
+    return jsonify(channels_data)
+
+@app.route('/channels/<channel_name>', methods=['GET'])
+def get_channel_summary(channel_name):
+    """Get the latest summary and recent transcriptions for a specific channel."""
+    # Validate channel exists
+    if not any(ch['name'] == channel_name for ch in CHANNELS):
+        return jsonify({'error': f'Channel {channel_name} not found'}), 404
+    
     # Try to get summary from Redis first
-    redis_summary = get_latest_summary_from_redis()
+    redis_summary = get_latest_summary_from_redis(channel_name)
     
     # Get recent transcriptions
     recent_transcriptions = []
     try:
-        # Get all transcriptions
-        history = load_transcription_history()
+        # Get transcriptions for this channel
+        history = load_transcription_history(channel_name)
         
         if history:
             # Filter for last hour
@@ -275,7 +374,7 @@ def get_latest_summary():
             # Sort by timestamp in descending order (latest first)
             recent_transcriptions.sort(key=lambda x: x['time'], reverse=True)
     except Exception as e:
-        print(f"⚠️ Could not load transcriptions for summary endpoint: {e}")
+        print(f"⚠️ Could not load transcriptions for {channel_name}: {e}")
     
     # Prepare response
     if redis_summary:
@@ -287,25 +386,67 @@ def get_latest_summary():
         return jsonify(response_data)
     
     # Fallback to global variables if Redis is empty
-    global latest_summary, last_updated
     return jsonify({
-        'channel': 'P1',
-        'summary': latest_summary,
-        'summary_updated': last_updated.isoformat() if last_updated else None,
+        'channel': channel_name,
+        'summary': channel_summaries.get(channel_name),
+        'summary_updated': channel_last_updated.get(channel_name).isoformat() if channel_last_updated.get(channel_name) else None,
         'transcriptions': recent_transcriptions
     })
 
-def summarize(text, use_context=True):
+@app.route('/transcriptions/<channel_name>', methods=['GET'])
+def get_channel_transcriptions(channel_name):
+    """Get all transcriptions from the last hour for a specific channel."""
+    # Validate channel exists
+    if not any(ch['name'] == channel_name for ch in CHANNELS):
+        return jsonify({'error': f'Channel {channel_name} not found'}), 404
+        
+    try:
+        # Get transcriptions for this channel
+        history = load_transcription_history(channel_name)
+        
+        if not history:
+            return jsonify({
+                'transcriptions': [],
+                'message': f'No transcriptions found for {channel_name}'
+            })
+        
+        # Filter for last hour
+        cutoff_time = datetime.now() - timedelta(hours=1)
+        recent_transcriptions = [
+            {
+                'text': entry['text'],
+                'time_formatted': datetime.fromisoformat(entry['timestamp']).strftime('%H:%M:%S')
+            }
+            for entry in history 
+            if datetime.fromisoformat(entry['timestamp']) > cutoff_time
+        ]
+        
+        # Sort by timestamp in descending order (latest first)
+        recent_transcriptions.sort(key=lambda x: x['time_formatted'], reverse=True)
+        
+        return jsonify({
+            'transcriptions': recent_transcriptions,
+            'channel': channel_name
+        })
+        
+    except Exception as e:
+        return jsonify({
+            'error': f'Failed to retrieve transcriptions for {channel_name}: {str(e)}',
+            'transcriptions': [],
+            'count': 0
+        }), 500
+
+def summarize(channel_name, text, use_context=True):
     messages = [
         {
             "role": "system", 
-            "content": "Du är en hjälpsam assistent som sammanfattar vad som sägs i Sveriges Radios kanaler kortfattat och tydligt. Du får kontext från tidigare transkriptioner för att ge bättre sammanhang. Undvik att summera låttexter, försök att summera vad programledare säger, gäster som kommer in i studion eller vad som händer i studion."
+            "content": f"Du är en hjälpsam assistent som sammanfattar vad som sägs i Sveriges Radios kanal {channel_name} kortfattat och tydligt. Du får kontext från tidigare transkriptioner för att ge bättre sammanhang. Undvik att summera låttexter, försök att summera vad programledare säger, gäster som kommer in i studion eller vad som händer i studion."
         }
     ]
     
     # Add context if available and requested
     if use_context:
-        context = get_recent_context(minutes=30)
+        context = get_recent_context(channel_name, hours=2)
         if context:
             messages.append({
                 "role": "user",
@@ -315,7 +456,7 @@ def summarize(text, use_context=True):
     # Add the main request
     messages.append({
         "role": "user", 
-        "content": f"Summera följande transkribering från Sveriges Radios kanal P1 till en kort sammanfattning på max 94 tecken som beskriver vad som händer just nu i direksändning: \n\n{text}"
+        "content": f"Summera följande transkribering från Sveriges Radios kanal {channel_name} till en kort sammanfattning på max 94 tecken som beskriver vad som händer just nu i direksändning: \n\n{text}"
     })
     
     try:
@@ -334,51 +475,54 @@ def signal_handler(signum, frame):
     """Handle graceful shutdown on Ctrl+C."""
     exit(0)
 
-def continuous_processing():
-    """Run the continuous audio processing in a separate thread."""
-    global latest_summary, last_updated
+def process_channel(channel):
+    """Process a single channel continuously."""
+    channel_name = channel["name"]
+    stream_url = channel["stream_url"]
     
-    print("🔄 Background processing thread started")
+    print(f"🔄 Background processing thread started for {channel_name}")
     
     while True:
         chunk_path = None
         try:
-            print("🎙️ Starting audio capture...")
+            print(f"🎙️ Starting audio capture for {channel_name}...")
             
             # Record and transcribe new audio
-            chunk_path = get_audio_chunk(int(os.environ.get("RECORDING_LENGTH", 30)))
-            print("✅ Audio captured, transcribing...")
+            chunk_path = get_audio_chunk(stream_url, int(os.environ.get("RECORDING_LENGTH", 30)))
+            print(f"✅ Audio captured for {channel_name}, transcribing...")
             
             text = transcribe(chunk_path)
-            print("✅ Transcription complete")
+            print(f"✅ Transcription complete for {channel_name}")
             
             # Save the transcription
-            save_transcription(text)
+            save_transcription(channel_name, text)
             
             # Create summary with context
-            summary = summarize(text, use_context=True)
-            print("✅ Summary generated")
+            summary = summarize(channel_name, text, use_context=True)
+            print(f"✅ Summary generated for {channel_name}")
             
             # Update global variables
-            latest_summary = summary
-            last_updated = datetime.now()
+            channel_summaries[channel_name] = summary
+            channel_last_updated[channel_name] = datetime.now()
+            processing_status[channel_name] = "Running"
             
             # Save summary to Redis for persistence
-            save_latest_summary_to_redis(summary, last_updated)
+            save_latest_summary_to_redis(channel_name, summary)
             
             # Display only the summary
-            print(f"📻 {summary}")
+            print(f"📻 {channel_name}: {summary}")
             
         except Exception as e:
             # Log errors for debugging but continue processing
-            print(f"❌ Processing error: {str(e)}")
+            print(f"❌ Processing error for {channel_name}: {str(e)}")
             # Set fallback summary
             error_message = f"Processing error occurred: {str(e)[:100]}"
-            latest_summary = error_message
-            last_updated = datetime.now()
+            channel_summaries[channel_name] = error_message
+            channel_last_updated[channel_name] = datetime.now()
+            processing_status[channel_name] = f"Error: {str(e)[:50]}"
             
             # Save error summary to Redis for persistence
-            save_latest_summary_to_redis(error_message, last_updated)
+            save_latest_summary_to_redis(channel_name, error_message)
             
         finally:
             # Clean up temporary file
@@ -386,14 +530,39 @@ def continuous_processing():
                 os.unlink(chunk_path)
         
         # Wait for the update interval before next iteration
-        print(f"⏳ Waiting {os.environ.get('RECORDING_INTERVAL', 900)} seconds for next capture...")
-        time.sleep(int(os.environ.get("RECORDING_INTERVAL", 900)))
+        wait_time = int(os.environ.get("RECORDING_INTERVAL", 900))
+        print(f"⏳ {channel_name}: Waiting {wait_time} seconds for next capture...")
+        time.sleep(wait_time)
+
+def start_all_channels():
+    """Start processing threads for all channels."""
+    threads = []
+    
+    for channel in CHANNELS:
+        channel_name = channel["name"]
+        # Initialize channel state
+        channel_summaries[channel_name] = None
+        channel_last_updated[channel_name] = None
+        processing_status[channel_name] = "Starting..."
+        
+        # Start processing thread for this channel
+        thread = threading.Thread(target=process_channel, args=(channel,), daemon=True)
+        thread.start()
+        threads.append(thread)
+        
+        print(f"🚀 Started processing thread for {channel_name}")
+        
+        # Small delay between starting threads to avoid overwhelming the system
+        time.sleep(2)
+    
+    return threads
 
 if __name__ == "__main__":
     # Set up signal handler for graceful shutdown
     signal.signal(signal.SIGINT, signal_handler)
 
     print("Hello, SR-Now here! 👋")
+    print(f"📻 Configured channels: {', '.join([ch['name'] for ch in CHANNELS])}")
     
     # Test Redis connection
     if redis_client:
@@ -404,12 +573,14 @@ if __name__ == "__main__":
             redis_client.ping()
             print("✅ Redis connection successful")
             
-            # Initialize global variables from Redis if available
-            redis_summary = get_latest_summary_from_redis()
-            if redis_summary:
-                latest_summary = redis_summary.get('summary')
-                last_updated = datetime.fromisoformat(redis_summary.get('updated')) if redis_summary.get('updated') else None
-                print(f"📻 Loaded previous summary from Redis: {latest_summary}")
+            # Initialize global variables from Redis if available for all channels
+            for channel in CHANNELS:
+                channel_name = channel["name"]
+                redis_summary = get_latest_summary_from_redis(channel_name)
+                if redis_summary:
+                    channel_summaries[channel_name] = redis_summary.get('summary')
+                    channel_last_updated[channel_name] = datetime.fromisoformat(redis_summary.get('updated')) if redis_summary.get('updated') else None
+                    print(f"📻 Loaded previous summary for {channel_name}: {channel_summaries[channel_name]}")
                 
         except Exception as e:
             print(f"❌ Redis connection test failed: {e}")
@@ -423,14 +594,19 @@ if __name__ == "__main__":
     
     print("🚀 Starting SR-Now with API endpoint...")
     print(f"📡 API available at: http://localhost:{port}/")
-    print("🎧 Continuous processing starting...")
+    print("🎧 Starting continuous processing for all channels...")
     
-    # Start continuous processing in a background thread
-    processing_thread = threading.Thread(target=continuous_processing, daemon=True)
-    processing_thread.start()
+    # Start processing threads for all channels
+    processing_threads = start_all_channels()
     
-    # Give the processing thread a moment to start
-    time.sleep(1)
+    # Give the processing threads a moment to start
+    time.sleep(3)
+    
+    print(f"✅ All {len(CHANNELS)} channels started successfully")
+    print("📡 Available endpoints:")
+    print("  GET / - All channels summary")
+    print("  GET /channels/<channel_name> - Specific channel summary")
+    print("  GET /transcriptions/<channel_name> - Channel transcriptions")
     
     # Run Flask app
     app.run(host='0.0.0.0', port=port, debug=False)
