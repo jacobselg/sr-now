@@ -71,6 +71,17 @@ CHANNELS = [
 REDIS_KEY_PREFIX = "sr_now:transcriptions"
 REDIS_SUMMARY_KEY_PREFIX = "sr_now:summary"
 
+def parse_timestamp_safely(timestamp_str):
+    """Parse timestamp string and ensure it's timezone-aware (UTC if none specified)."""
+    try:
+        dt = datetime.fromisoformat(timestamp_str)
+        # If the datetime is naive (no timezone), assume it's UTC
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt
+    except (ValueError, TypeError):
+        return datetime.now(timezone.utc)
+
 def get_latest_summary_from_redis(channel_name):
     """Get the latest summary from Redis for a specific channel."""
     if not redis_client:
@@ -94,14 +105,14 @@ def save_latest_summary_to_redis(channel_name, summary, timestamp=None):
     if timestamp is None:
         timestamp = datetime.now(timezone.utc)
     
-    # Ensure timestamp is a datetime object
+    # Ensure timestamp is a timezone-aware datetime object
     if isinstance(timestamp, str):
-        try:
-            timestamp = datetime.fromisoformat(timestamp)
-        except ValueError:
-            timestamp = datetime.now(timezone.utc)
+        timestamp = parse_timestamp_safely(timestamp)
     elif not isinstance(timestamp, datetime):
         timestamp = datetime.now(timezone.utc)
+    elif timestamp.tzinfo is None:
+        # If it's a naive datetime, assume UTC
+        timestamp = timestamp.replace(tzinfo=timezone.utc)
     
     try:
         summary_data = {
@@ -156,14 +167,14 @@ def save_transcription(channel_name, text, timestamp=None):
     if timestamp is None:
         timestamp = datetime.now(timezone.utc)
     
-    # Ensure timestamp is a datetime object
+    # Ensure timestamp is a timezone-aware datetime object
     if isinstance(timestamp, str):
-        try:
-            timestamp = datetime.fromisoformat(timestamp)
-        except ValueError:
-            timestamp = datetime.now(timezone.utc)
+        timestamp = parse_timestamp_safely(timestamp)
     elif not isinstance(timestamp, datetime):
         timestamp = datetime.now(timezone.utc)
+    elif timestamp.tzinfo is None:
+        # If it's a naive datetime, assume UTC
+        timestamp = timestamp.replace(tzinfo=timezone.utc)
     
     try:
         # Create entry
@@ -221,7 +232,7 @@ def get_recent_context(channel_name, hours=2):
     cutoff_time = datetime.now(timezone.utc) - timedelta(hours=hours)
     recent_entries = [
         entry for entry in history 
-        if datetime.fromisoformat(entry["timestamp"]) > cutoff_time
+        if parse_timestamp_safely(entry["timestamp"]) > cutoff_time
     ]
     
     if not recent_entries:
@@ -315,7 +326,7 @@ def get_all_channels_summary():
                         'time': entry['timestamp']
                     }
                     for entry in history 
-                    if datetime.fromisoformat(entry['timestamp']) > cutoff_time
+                    if parse_timestamp_safely(entry['timestamp']) > cutoff_time
                 ]
                 
                 # Sort by timestamp in descending order (latest first)
@@ -368,7 +379,7 @@ def get_channel_summary(channel_name):
                     'time': entry['timestamp']
                 }
                 for entry in history 
-                if datetime.fromisoformat(entry['timestamp']) > cutoff_time
+                if parse_timestamp_safely(entry['timestamp']) > cutoff_time
             ]
             
             # Sort by timestamp in descending order (latest first)
@@ -415,10 +426,10 @@ def get_channel_transcriptions(channel_name):
         recent_transcriptions = [
             {
                 'text': entry['text'],
-                'time_formatted': datetime.fromisoformat(entry['timestamp']).strftime('%H:%M:%S')
+                'time_formatted': parse_timestamp_safely(entry['timestamp']).strftime('%H:%M:%S')
             }
             for entry in history 
-            if datetime.fromisoformat(entry['timestamp']) > cutoff_time
+            if parse_timestamp_safely(entry['timestamp']) > cutoff_time
         ]
         
         # Sort by timestamp in descending order (latest first)
@@ -586,7 +597,7 @@ if __name__ == "__main__":
                 redis_summary = get_latest_summary_from_redis(channel_name)
                 if redis_summary:
                     channel_summaries[channel_name] = redis_summary.get('summary')
-                    channel_last_updated[channel_name] = datetime.fromisoformat(redis_summary.get('updated')) if redis_summary.get('updated') else None
+                    channel_last_updated[channel_name] = parse_timestamp_safely(redis_summary.get('updated')) if redis_summary.get('updated') else None
                     print(f"📻 Loaded previous summary for {channel_name}: {channel_summaries[channel_name]}")
                 
         except Exception as e:
