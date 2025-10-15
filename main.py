@@ -250,11 +250,38 @@ def transcribe(file_path):
 
 @app.route('/', methods=['GET'])
 def get_latest_summary():
-    """Get the latest summary from Redis."""
-    # Try to get from Redis first
+    """Get the latest summary and recent transcriptions from Redis."""
+    # Try to get summary from Redis first
     redis_summary = get_latest_summary_from_redis()
+    
+    # Get recent transcriptions
+    recent_transcriptions = []
+    try:
+        # Get all transcriptions
+        history = load_transcription_history()
+        
+        if history:
+            # Filter for last hour
+            cutoff_time = datetime.now() - timedelta(hours=1)
+            recent_transcriptions = [
+                {
+                    'text': entry['text'],
+                    'time_formatted': datetime.fromisoformat(entry['timestamp']).strftime('%H:%M:%S')
+                }
+                for entry in history 
+                if datetime.fromisoformat(entry['timestamp']) > cutoff_time
+            ]
+            
+            # Sort by timestamp in descending order (latest first)
+            recent_transcriptions.sort(key=lambda x: x['time_formatted'], reverse=True)
+    except Exception as e:
+        print(f"⚠️ Could not load transcriptions for summary endpoint: {e}")
+    
+    # Prepare response
     if redis_summary:
-        return jsonify(redis_summary)
+        response_data = redis_summary.copy()
+        response_data['transcriptions'] = recent_transcriptions
+        return jsonify(response_data)
     
     # Fallback to global variables if Redis is empty
     global latest_summary, last_updated
@@ -262,6 +289,7 @@ def get_latest_summary():
         'channel': 'P1',
         'summary': latest_summary,
         'updated': last_updated.isoformat() if last_updated else None,
+        'transcriptions': recent_transcriptions
     })
 
 @app.route('/transcriptions', methods=['GET'])
@@ -274,8 +302,6 @@ def get_recent_transcriptions():
         if not history:
             return jsonify({
                 'transcriptions': [],
-                'count': 0,
-                'period': 'last hour',
                 'message': 'No transcriptions found'
             })
         
@@ -283,7 +309,6 @@ def get_recent_transcriptions():
         cutoff_time = datetime.now() - timedelta(hours=1)
         recent_transcriptions = [
             {
-                'timestamp': entry['timestamp'],
                 'text': entry['text'],
                 'time_formatted': datetime.fromisoformat(entry['timestamp']).strftime('%H:%M:%S')
             }
@@ -292,12 +317,10 @@ def get_recent_transcriptions():
         ]
         
         # Sort by timestamp in descending order (latest first)
-        recent_transcriptions.sort(key=lambda x: x['timestamp'], reverse=True)
+        recent_transcriptions.sort(key=lambda x: x['time_formatted'], reverse=True)
         
         return jsonify({
             'transcriptions': recent_transcriptions,
-            'count': len(recent_transcriptions),
-            'period': 'last hour',
             'channel': 'P1'
         })
         
