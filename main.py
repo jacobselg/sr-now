@@ -552,7 +552,7 @@ def process_channel(channel):
             save_transcription(channel_name, text)
             
             # Create summary with context
-            summary = summarize(channel_name, text)
+            summary = summarize(channel_name)
             print(f"✅ Summary generated for {channel_name}")
             
             # Use consistent timezone-aware timestamp for both global variables and Redis
