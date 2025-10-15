@@ -288,7 +288,7 @@ def get_latest_summary():
     return jsonify({
         'channel': 'P1',
         'summary': latest_summary,
-        'updated': last_updated.isoformat() if last_updated else None,
+        'summary_updated': last_updated.isoformat() if last_updated else None,
         'transcriptions': recent_transcriptions
     })
 
