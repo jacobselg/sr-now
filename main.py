@@ -422,8 +422,7 @@ def summarize(channel_name, latest=None):
         response = client.chat.completions.create(
             model="gpt-5-nano-2025-08-07",
             messages=messages,
-            max_tokens=50,
-            temperature=0.8,
+            max_completion_tokens=50,
         )
         return response.choices[0].message.content.strip()
     
