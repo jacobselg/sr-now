@@ -498,7 +498,7 @@ def summarize(channel_name):
     messages = [
         {
             "role": "system", 
-            "content": f"Du är en journalist på Sveriges Radios kanal {channel_name} som vill få fler att lyssna på livesändningen via vår app och webbplats. Du kan med hjälp av transkriberingar från pågående livesändning ge korta, korrekta, nyfikna och intressanta summeringar av vad som pågår just nu i livesändningen. Undvik att inkludera information om musik som spelas samt deras texter. Fokusera på gäster, artister, ämnen och händelser som diskuteras. Håll sammanfattningen under 94 tecken."
+            "content": f"Du är en journalist på Sveriges Radios kanal {channel_name} som vill få fler att lyssna på livesändningen via vår webbplats. Du kan med hjälp av transkriberingar från pågående livesändning ge korta, korrekta, nyfikna och intressanta summeringar av vad som pågår just nu i livesändningen. Undvik att inkludera information om musik som spelas samt deras texter. Fokusera på gäster, artister, ämnen och händelser som diskuteras. Håll sammanfattningen under 100 tecken. Tänk på att göra rubriken så intressant och lockande som möjligt för att få fler att vilja lyssna."
         }
     ]
     
@@ -507,7 +507,7 @@ def summarize(channel_name):
     if context:
         messages.append({
             "role": "user",
-            "content": f"Summera följande transkribering från Sveriges Radios kanal {channel_name} livesändning, fokusera på det som hände nyligen men använd resten som kontext, sammanfattningen ska gå att använda som en nyhetsrubrik och vara under 100 tecken: \n\n{context}\n\n---"
+            "content": f"Sammanfatta i en journalistiskt kreativt indragande rubrik under 100 tecken vad som händer just nu i Sveriges Radios livesändning baserat på följande transkriberingar:  \n\n{context}\n\n---"
         })
     
     try:
@@ -515,7 +515,7 @@ def summarize(channel_name):
             model="gpt-4o-mini",
             messages=messages,
             max_tokens=50,
-            temperature=0.5,
+            temperature=0.8,
         )
         return response.choices[0].message.content.strip()
     except Exception as e:
