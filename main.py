@@ -412,20 +412,21 @@ def summarize(channel_name, latest=None):
     
     # Add context if available and requested
     context = get_recent_context(channel_name, minutes=10)
-    if context:
-        messages.append({
-            "role": "user",
-            "content": f"Sammanfatta i en journalistiskt kreativt indragande text under 100 tecken vad som händer just nu i Sveriges Radios livesändning baserat på följande transkriberingar, undvik att använda ord som 'lyssna nu' och 'diskuteras': \n\n{latest}\n{context}\n\n"
-        })
+
+    messages.append({
+        "role": "user",
+        "content": f"Sammanfatta i en journalistiskt kreativt indragande text under 100 tecken vad som händer just nu i Sveriges Radios livesändning baserat på följande transkriberingar, undvik att använda ord som 'lyssna nu' och 'diskuteras': \n\n{latest}\n{context}\n\n"
+    })
     
     try:
         response = client.chat.completions.create(
-            model="gpt-4o-mini",
+            model="gpt-5-nano-2025-08-07",
             messages=messages,
             max_tokens=50,
             temperature=0.8,
         )
         return response.choices[0].message.content.strip()
+    
     except Exception as e:
         return f"Kunde inte genomföra transkribering..."
 
