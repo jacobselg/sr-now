@@ -292,45 +292,6 @@ def get_latest_summary():
         'transcriptions': recent_transcriptions
     })
 
-@app.route('/transcriptions', methods=['GET'])
-def get_recent_transcriptions():
-    """Get all transcriptions from the last hour."""
-    try:
-        # Get all transcriptions
-        history = load_transcription_history()
-        
-        if not history:
-            return jsonify({
-                'transcriptions': [],
-                'message': 'No transcriptions found'
-            })
-        
-        # Filter for last hour
-        cutoff_time = datetime.now() - timedelta(hours=1)
-        recent_transcriptions = [
-            {
-                'text': entry['text'],
-                'time_formatted': datetime.fromisoformat(entry['timestamp']).strftime('%H:%M:%S')
-            }
-            for entry in history 
-            if datetime.fromisoformat(entry['timestamp']) > cutoff_time
-        ]
-        
-        # Sort by timestamp in descending order (latest first)
-        recent_transcriptions.sort(key=lambda x: x['time_formatted'], reverse=True)
-        
-        return jsonify({
-            'transcriptions': recent_transcriptions,
-            'channel': 'P1'
-        })
-        
-    except Exception as e:
-        return jsonify({
-            'error': f'Failed to retrieve transcriptions: {str(e)}',
-            'transcriptions': [],
-            'count': 0
-        }), 500
-
 def summarize(text, use_context=True):
     messages = [
         {
