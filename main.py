@@ -494,7 +494,7 @@ def get_channel_transcriptions(channel_name):
             'count': 0
         }), 500
 
-def summarize(channel_name):
+def summarize(channel_name, latest=None):
     messages = [
         {
             "role": "system", 
@@ -507,7 +507,7 @@ def summarize(channel_name):
     if context:
         messages.append({
             "role": "user",
-            "content": f"Sammanfatta i en journalistiskt kreativt indragande text under 100 tecken vad som händer just nu i Sveriges Radios livesändning baserat på följande transkriberingar, undvik att använda ord som 'lyssna nu' och 'diskuteras':  \n\n{context}\n\n---"
+            "content": f"Sammanfatta i en journalistiskt kreativt indragande text under 100 tecken vad som händer just nu i Sveriges Radios livesändning baserat på följande transkriberingar, undvik att använda ord som 'lyssna nu' och 'diskuteras': \n\n{latest}\n{context}\n\n"
         })
     
     try:
@@ -552,7 +552,7 @@ def process_channel(channel):
             save_transcription(channel_name, text)
             
             # Create summary with context
-            summary = summarize(channel_name)
+            summary = summarize(channel_name, text)
             print(f"✅ Summary generated for {channel_name}")
             
             # Use consistent timezone-aware timestamp for both global variables and Redis
