@@ -60,11 +60,21 @@ processing_status = {}
 CHANNELS = [
     {
         "name": "P1",
-        "stream_url": "https://edge2.sr.se/p1-mp3-96"
+        "stream_url": "https://edge2.sr.se/p1-mp3-96",
+        "recording_length": 30,
+        "recording_interval": 120
     },
     {
         "name": "P3",
-        "stream_url": "https://edge2.sr.se/p3-mp3-96"
+        "stream_url": "https://edge2.sr.se/p3-mp3-96",
+        "recording_length": 30,
+        "recording_interval": 300
+    },
+    {
+        "name": "P4-Gotland",
+        "stream_url": "https://edge1.sr.se/p4gotl-mp3-96",
+        "recording_length": 30,  # seconds
+        "recording_interval": 120 
     }
 ]
 
@@ -81,6 +91,43 @@ def parse_timestamp_safely(timestamp_str):
         return dt
     except (ValueError, TypeError):
         return datetime.now(timezone.utc)
+
+def load_channel_settings():
+    """Load and apply environment variable overrides to channel settings."""
+    for channel in CHANNELS:
+        channel_name = channel["name"]
+        
+        # Check for channel-specific environment variables
+        length_env_key = f"{channel_name}_RECORDING_LENGTH"
+        interval_env_key = f"{channel_name}_RECORDING_INTERVAL"
+        
+        # Override with environment variables if they exist
+        if length_env_key in os.environ:
+            try:
+                channel["recording_length"] = int(os.environ[length_env_key])
+                print(f"🔧 Override {channel_name} recording length: {channel['recording_length']}s")
+            except ValueError:
+                print(f"⚠️ Invalid {length_env_key} value, using default")
+        
+        if interval_env_key in os.environ:
+            try:
+                channel["recording_interval"] = int(os.environ[interval_env_key])
+                print(f"🔧 Override {channel_name} recording interval: {channel['recording_interval']}s")
+            except ValueError:
+                print(f"⚠️ Invalid {interval_env_key} value, using default")
+        
+        # Also check for global fallbacks (for backward compatibility)
+        if "RECORDING_LENGTH" in os.environ and "recording_length" not in channel:
+            try:
+                channel["recording_length"] = int(os.environ["RECORDING_LENGTH"])
+            except ValueError:
+                pass
+                
+        if "RECORDING_INTERVAL" in os.environ and "recording_interval" not in channel:
+            try:
+                channel["recording_interval"] = int(os.environ["RECORDING_INTERVAL"])
+            except ValueError:
+                pass
 
 def get_latest_summary_from_redis(channel_name):
     """Get the latest summary from Redis for a specific channel."""
@@ -490,16 +537,19 @@ def process_channel(channel):
     """Process a single channel continuously."""
     channel_name = channel["name"]
     stream_url = channel["stream_url"]
+    recording_length = channel.get("recording_length", 30)  # Default to 30 seconds
+    recording_interval = channel.get("recording_interval", 900)  # Default to 15 minutes
     
     print(f"🔄 Background processing thread started for {channel_name}")
+    print(f"⚙️ {channel_name} settings: {recording_length}s recording, {recording_interval}s interval")
     
     while True:
         chunk_path = None
         try:
             print(f"🎙️ Starting audio capture for {channel_name}...")
             
-            # Record and transcribe new audio
-            chunk_path = get_audio_chunk(stream_url, int(os.environ.get("RECORDING_LENGTH", 30)))
+            # Record and transcribe new audio using channel-specific length
+            chunk_path = get_audio_chunk(stream_url, recording_length)
             print(f"✅ Audio captured for {channel_name}, transcribing...")
             
             text = transcribe(chunk_path)
@@ -547,10 +597,9 @@ def process_channel(channel):
             if chunk_path and os.path.exists(chunk_path):
                 os.unlink(chunk_path)
         
-        # Wait for the update interval before next iteration
-        wait_time = int(os.environ.get("RECORDING_INTERVAL", 900))
-        print(f"⏳ {channel_name}: Waiting {wait_time} seconds for next capture...")
-        time.sleep(wait_time)
+        # Wait for the channel-specific interval before next iteration
+        print(f"⏳ {channel_name}: Waiting {recording_interval} seconds for next capture...")
+        time.sleep(recording_interval)
 
 def start_all_channels():
     """Start processing threads for all channels."""
@@ -580,7 +629,15 @@ if __name__ == "__main__":
     signal.signal(signal.SIGINT, signal_handler)
 
     print("Hello, SR-Now here! 👋")
+    
+    # Load channel settings (apply any environment variable overrides)
+    load_channel_settings()
+    
     print(f"📻 Configured channels: {', '.join([ch['name'] for ch in CHANNELS])}")
+    
+    # Display channel configurations
+    for channel in CHANNELS:
+        print(f"⚙️ {channel['name']}: {channel.get('recording_length', 30)}s recording every {channel.get('recording_interval', 900)}s")
     
     # Test Redis connection
     if redis_client:
