@@ -244,12 +244,12 @@ def save_transcription(channel_name, text, timestamp=None):
         print(f"⚠️ Could not save transcription for {channel_name} to Redis: {e}")
 
 def cleanup_old_transcriptions(channel_name=None):
-    """Remove transcriptions older than 24 hours from Redis for a specific channel or all channels."""
+    """Remove transcriptions older than 60 minutes from Redis for a specific channel or all channels."""
     if not redis_client:
         return
         
     try:
-        cutoff_time = datetime.now(timezone.utc) - timedelta(hours=24)
+        cutoff_time = datetime.now(timezone.utc) - timedelta(minutes=60)
         cutoff_timestamp = int(cutoff_time.timestamp())
         
         if channel_name:
@@ -270,13 +270,13 @@ def cleanup_old_transcriptions(channel_name=None):
     except Exception as e:
         print(f"⚠️ Could not cleanup old transcriptions: {e}")
 
-def get_recent_context(channel_name, hours=2):
+def get_recent_context(channel_name, minutes=15):
     history = load_transcription_history(channel_name)
     
     if not history:
         return ""
-    
-    cutoff_time = datetime.now(timezone.utc) - timedelta(hours=hours)
+
+    cutoff_time = datetime.now(timezone.utc) - timedelta(minutes=minutes)
     recent_entries = [
         entry for entry in history 
         if parse_timestamp_safely(entry["timestamp"]) > cutoff_time
@@ -494,39 +494,32 @@ def get_channel_transcriptions(channel_name):
             'count': 0
         }), 500
 
-def summarize(channel_name, text, use_context=True):
+def summarize(channel_name):
     messages = [
         {
             "role": "system", 
-            "content": f"Du är en hjälpsam assistent som sammanfattar vad som sägs i Sveriges Radios kanal {channel_name} kortfattat och tydligt. Du får kontext från tidigare transkriptioner för att ge bättre sammanhang. Undvik att summera låttexter, försök att summera vad programledare säger, gäster som kommer in i studion eller vad som händer i studion."
+            "content": f"Du är en journalist på Sveriges Radios kanal {channel_name} som vill få fler att lyssna på livesändningen via vår app och webbplats. Du kan med hjälp av transkriberingar från pågående livesändning ge korta, korrekta, nyfikna och intressanta summeringar av vad som pågår just nu i livesändningen. Undvik att inkludera information om musik som spelas samt deras texter. Fokusera på gäster, artister, ämnen och händelser som diskuteras. Håll sammanfattningen under 94 tecken."
         }
     ]
     
     # Add context if available and requested
-    if use_context:
-        context = get_recent_context(channel_name, hours=2)
-        if context:
-            messages.append({
-                "role": "user",
-                "content": f"Här är vad som sagts tidigare i kanalen för kontext:\n\n{context}\n\n---"
-            })
-    
-    # Add the main request
-    messages.append({
-        "role": "user", 
-        "content": f"Summera följande transkribering från Sveriges Radios kanal {channel_name} till en kort sammanfattning på max 94 tecken som beskriver vad som händer just nu i direksändning: \n\n{text}"
-    })
+    context = get_recent_context(channel_name, minutes=10)
+    if context:
+        messages.append({
+            "role": "user",
+            "content": f"Summera följande transkribering från Sveriges Radios kanal {channel_name} livesändning, fokusera på det som hände nyligen men använd resten som kontext, sammanfattningen ska gå att använda som en nyhetsrubrik och vara under 100 tecken: \n\n{context}\n\n---"
+        })
     
     try:
         response = client.chat.completions.create(
             model="gpt-4o-mini",
             messages=messages,
-            max_tokens=100,
-            temperature=0.3
+            max_tokens=50,
+            temperature=0.5,
         )
         return response.choices[0].message.content.strip()
     except Exception as e:
-        return f"Transkribering: {text[:100]}..."
+        return f"Kunde inte genomföra transkribering..."
 
 
 def signal_handler(signum, frame):
@@ -559,7 +552,7 @@ def process_channel(channel):
             save_transcription(channel_name, text)
             
             # Create summary with context
-            summary = summarize(channel_name, text, use_context=True)
+            summary = summarize(channel_name, text)
             print(f"✅ Summary generated for {channel_name}")
             
             # Use consistent timezone-aware timestamp for both global variables and Redis
