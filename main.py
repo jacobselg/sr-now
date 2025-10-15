@@ -280,6 +280,9 @@ def get_latest_summary():
     # Prepare response
     if redis_summary:
         response_data = redis_summary.copy()
+        # Rename 'updated' field to 'summary_updated' for consistency
+        if 'updated' in response_data:
+            response_data['summary_updated'] = response_data.pop('updated')
         response_data['transcriptions'] = recent_transcriptions
         return jsonify(response_data)
     
