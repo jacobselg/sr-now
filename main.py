@@ -1,4 +1,3 @@
-import requests
 from openai import OpenAI
 import tempfile
 import subprocess
@@ -365,6 +364,33 @@ def get_all_channels_summary():
         # Try to get summary from Redis first
         redis_summary = get_latest_summary_from_redis(channel_name)
         
+        # Prepare channel data
+        if redis_summary:
+            channel_data = redis_summary.copy()
+            # Rename 'updated' field to 'summary_updated' for consistency
+            if 'updated' in channel_data:
+                channel_data['summary_updated'] = channel_data.pop('updated')
+        else:
+            # Fallback to global variables if Redis is empty
+            channel_data = {
+                'channel': channel_name,
+                'summary': channel_summaries.get(channel_name),
+                'summaryUpdated': channel_last_updated.get(channel_name).isoformat() if channel_last_updated.get(channel_name) else None,
+                'summaryUpdateFrequency': channel.get('recording_interval')
+            }
+        
+        channels_array.append(channel_data)
+    
+    return jsonify(channels_array)
+
+@app.route('/transcriptions', methods=['GET'])
+def get_all_channels_transcriptions():
+    """Get only the transcriptions for all channels."""
+    channels_transcriptions = []
+    
+    for channel in CHANNELS:
+        channel_name = channel["name"]
+        
         # Get recent transcriptions
         recent_transcriptions = []
         try:
@@ -388,26 +414,59 @@ def get_all_channels_summary():
         except Exception as e:
             print(f"⚠️ Could not load transcriptions for {channel_name}: {e}")
         
-        # Prepare channel data
-        if redis_summary:
-            channel_data = redis_summary.copy()
-            # Rename 'updated' field to 'summary_updated' for consistency
-            if 'updated' in channel_data:
-                channel_data['summary_updated'] = channel_data.pop('updated')
-            channel_data['transcriptions'] = recent_transcriptions
-        else:
-            # Fallback to global variables if Redis is empty
-            channel_data = {
-                'channel': channel_name,
-                'summary': channel_summaries.get(channel_name),
-                'summaryUpdated': channel_last_updated.get(channel_name).isoformat() if channel_last_updated.get(channel_name) else None,
-                'summaryUpdateFrequency': channel.get('recording_interval'),
-                'transcriptions': recent_transcriptions
-            }
+        # Prepare channel transcription data
+        channel_data = {
+            'channel': channel_name,
+            'transcriptions': recent_transcriptions
+        }
         
-        channels_array.append(channel_data)
+        channels_transcriptions.append(channel_data)
     
-    return jsonify(channels_array)
+    return jsonify(channels_transcriptions)
+
+@app.route('/transcriptions/<channel_name>', methods=['GET'])
+def get_channel_transcriptions(channel_name):
+    """Get transcriptions for a specific channel."""
+    # Validate channel exists
+    if not any(ch['name'] == channel_name for ch in CHANNELS):
+        return jsonify({'error': f'Channel {channel_name} not found'}), 404
+        
+    try:
+        # Get transcriptions for this channel
+        history = load_transcription_history(channel_name)
+        
+        if not history:
+            return jsonify({
+                'channel': channel_name,
+                'transcriptions': [],
+                'message': f'No transcriptions found for {channel_name}'
+            })
+        
+        # Filter for last hour
+        cutoff_time = datetime.now(timezone.utc) - timedelta(hours=1)
+        recent_transcriptions = [
+            {
+                'text': entry['text'],
+                'time': entry['timestamp']
+            }
+            for entry in history 
+            if parse_timestamp_safely(entry['timestamp']) > cutoff_time
+        ]
+        
+        # Sort by timestamp in descending order (latest first)
+        recent_transcriptions.sort(key=lambda x: x['time'], reverse=True)
+        
+        return jsonify({
+            'channel': channel_name,
+            'transcriptions': recent_transcriptions
+        })
+        
+    except Exception as e:
+        return jsonify({
+            'error': f'Failed to retrieve transcriptions for {channel_name}: {str(e)}',
+            'channel': channel_name,
+            'transcriptions': []
+        }), 500
 
 def summarize(channel_name, latest=None):
     messages = [
@@ -589,8 +648,8 @@ if __name__ == "__main__":
     print(f"✅ All {len(CHANNELS)} channels started successfully")
     print("📡 Available endpoints:")
     print("  GET / - All channels summary")
-    print("  GET /channels/<channel_name> - Specific channel summary")
-    print("  GET /transcriptions/<channel_name> - Channel transcriptions")
+    print("  GET /transcriptions - All channels transcriptions only")
+    print("  GET /transcriptions/<channel_name> - Specific channel transcriptions")
     
     # Run Flask app
     app.run(host='0.0.0.0', port=port, debug=False)
