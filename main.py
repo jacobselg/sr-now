@@ -672,7 +672,7 @@ def process_channel(channel):
     """Process a single channel continuously."""
     channel_name = channel["name"]
     channel_prompt_description = channel["prompt_description"]
-    channel_temperature = channel.temperature["temperature"]
+    channel_temperature = channel["temperature"]
     stream_url = channel["stream_url"]
     recording_length = channel.get("recording_length", 30)  # Default to 30 seconds
     recording_interval = channel.get("recording_interval", 900)  # Default to 15 minutes
