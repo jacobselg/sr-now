@@ -61,26 +61,31 @@ CHANNELS = [
         "name": "P1",
         "stream_url": "https://edge2.sr.se/p1-mp3-96",
         "recording_length": 30,
-        "recording_interval": 60
+        "recording_interval": 60,
+        "prompt_description": "Tänk på att P1 är kanalen för fördjupning, granskning och nyheter när du gör din sammanfattning.",
     }
 ] if (os.environ['ENV'] == 'local') else [
     {
         "name": "P1",
         "stream_url": "https://edge2.sr.se/p1-mp3-96",
         "recording_length": 30,
-        "recording_interval": 120
+        "recording_interval": 120,
+        "prompt_description": "Tänk på att P1 är kanalen för fördjupning, granskning och nyheter när du gör din sammanfattning",
     },
     {
         "name": "P3",
         "stream_url": "https://edge2.sr.se/p3-mp3-96",
         "recording_length": 30,
-        "recording_interval": 120
+        "recording_interval": 120,
+        "prompt_description": "Tänk på att P3 är kanalen för den musikintresserade publiken som också bjuder på underhållning, nyheter och populärkultur när du gör din sammanfattning.",
+
     },
     {
         "name": "P4-Gotland",
         "stream_url": "https://edge1.sr.se/p4gotl-mp3-96",
         "recording_length": 30,
-        "recording_interval": 120
+        "recording_interval": 120,
+        "prompt_description": "Tänk på att P4-Gotland är en lokalakanal för Gotland. Lägg gärna till lite gotländska i svaret.",
     }
 ]
 
@@ -468,11 +473,11 @@ def get_channel_transcriptions(channel_name):
             'transcriptions': []
         }), 500
 
-def summarize(channel_name, latest=None):
+def summarize(channel_name, prompt_description, latest=None):
     messages = [
         {
             "role": "system", 
-            "content": f"Du är en journalist på Sveriges Radios kanal {channel_name} som vill få fler att lyssna på livesändningen via vår webbplats. Du kan med hjälp av transkriberingar från pågående livesändning ge korta, korrekta, nyfikna och intressanta summeringar av vad som pågår just nu i livesändningen. Undvik att inkludera information om musik som spelas samt deras texter. Fokusera på gäster, artister, ämnen och händelser som diskuteras. Håll sammanfattningen under 100 tecken."
+            "content": f"Du är en journalist på Sveriges Radios kanal {channel_name} som vill få fler att lyssna på livesändningen via vår webbplats. Du kan med hjälp av transkriberingar från pågående livesändning ge korta, korrekta, nyfikna och intressanta summeringar av vad som pågår just nu i livesändningen. Undvik att inkludera information om musik som spelas samt deras texter. Fokusera på gäster, artister, ämnen och händelser som diskuteras. {prompt_description} Håll sammanfattningen under 100 tecken."
         }
     ]
     
@@ -504,6 +509,7 @@ def signal_handler(signum, frame):
 def process_channel(channel):
     """Process a single channel continuously."""
     channel_name = channel["name"]
+    channel_prompt_description = channel["prompt_description"]
     stream_url = channel["stream_url"]
     recording_length = channel.get("recording_length", 30)  # Default to 30 seconds
     recording_interval = channel.get("recording_interval", 900)  # Default to 15 minutes
@@ -527,7 +533,7 @@ def process_channel(channel):
             save_transcription(channel_name, text)
             
             # Create summary with context
-            summary = summarize(channel_name, text)
+            summary = summarize(channel_name, channel_prompt_description, text)
             print(f"✅ Summary generated for {channel_name}")
             
             # Use consistent timezone-aware timestamp for both global variables and Redis
