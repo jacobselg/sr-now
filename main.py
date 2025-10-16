@@ -264,7 +264,7 @@ def save_transcription(channel_name, text, timestamp=None):
         redis_client.setex(key, 86400, json.dumps(new_entry))
         
         # Clean up old entries (older than 24 hours)
-        cleanup_old_transcriptions(channel_name)
+        #cleanup_old_transcriptions(channel_name)
         
     except Exception as e:
         print(f"⚠️ Could not save transcription for {channel_name} to Redis: {e}")
