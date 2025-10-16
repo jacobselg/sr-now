@@ -21,6 +21,8 @@ load_dotenv()
 redis_url = os.environ.get('REDIS_URL')
 redis_client = None
 
+# Test
+
 if redis_url:
     try:
         print(f"🔄 Setting up Redis client for: {redis_url.split('@')[1] if '@' in redis_url else redis_url}")
