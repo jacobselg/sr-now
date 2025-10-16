@@ -62,19 +62,26 @@ CHANNELS = [
         "name": "P1",
         "stream_url": "https://edge2.sr.se/p1-mp3-96",
         "recording_length": 30,
-        "recording_interval": 1500
+        "recording_interval": 60
+    }
+] if (os.environ['ENV'] == 'local') else [
+    {
+        "name": "P1",
+        "stream_url": "https://edge2.sr.se/p1-mp3-96",
+        "recording_length": 30,
+        "recording_interval": 120
     },
     {
         "name": "P3",
         "stream_url": "https://edge2.sr.se/p3-mp3-96",
         "recording_length": 30,
-        "recording_interval": 1500
+        "recording_interval": 120
     },
     {
         "name": "P4-Gotland",
         "stream_url": "https://edge1.sr.se/p4gotl-mp3-96",
-        "recording_length": 30,  # seconds
-        "recording_interval": 1500 
+        "recording_length": 30,
+        "recording_interval": 120
     }
 ]
 
