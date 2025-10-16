@@ -483,6 +483,17 @@ def get_channel_transcriptions(channel_name):
 @app.route('/openapi.json', methods=['GET'])
 def openapi_spec():
     """Return OpenAPI specification for the API."""
+    # Determine the base URL based on environment
+    base_url = os.environ.get('API_BASE_URL')
+    if not base_url:
+        # Check if we're running on Railway
+        if os.environ.get('RAILWAY_ENVIRONMENT'):
+            base_url = "https://sr-now.up.railway.app"
+        else:
+            # Default to localhost for development
+            port = os.environ.get('PORT', 5001)
+            base_url = f"http://localhost:{port}"
+    
     spec = {
         "openapi": "3.0.0",
         "info": {
@@ -492,8 +503,8 @@ def openapi_spec():
         },
         "servers": [
             {
-                "url": f"http://localhost:{os.environ.get('PORT', 5001)}",
-                "description": "Development server"
+                "url": base_url,
+                "description": "Production server" if "railway.app" in base_url else "Development server"
             }
         ],
         "paths": {
