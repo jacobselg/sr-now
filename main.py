@@ -94,7 +94,7 @@ CHANNELS = [
         "temperature": 1.5,
     },
     {
-        "name": "Åttondelsfinal bordtennis-EM",
+        "name": "Extra03",
         "stream_url": "https://ljud1-cdn.sr.se/lc/extra03.m3u8",
         "recording_length": 30,
         "recording_interval": 120,
