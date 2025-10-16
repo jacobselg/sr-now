@@ -92,6 +92,14 @@ CHANNELS = [
         "recording_interval": 120,
         "prompt_description": "Tänk på att P4-Gotland är en lokalakanal för Gotland. Lägg gärna till lite gotländska i svaret.",
         "temperature": 1.5,
+    },
+    {
+        "name": "Åttondelsfinal bordtennis-EM",
+        "stream_url": "https://ljud1-cdn.sr.se/lc/extra03.m3u8",
+        "recording_length": 30,
+        "recording_interval": 120,
+        "prompt_description": "Sädningen är direkt från damernas åttondelsfinal i bordtennis-EM, Sverige möter Spanien. Referent Patric Ljunggren, expert Ulf ”Tickan” Carlsson.",
+        "temperature": 0.2,
     }
 ]
 
