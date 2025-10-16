@@ -65,6 +65,7 @@ CHANNELS = [
         "recording_length": 30,
         "recording_interval": 60,
         "prompt_description": "Tänk på att P1 är kanalen för fördjupning, granskning och nyheter när du gör din sammanfattning.",
+        "temperature": 0.2,
     }
 ] if (os.environ['ENV'] == 'local') else [
     {
@@ -73,6 +74,7 @@ CHANNELS = [
         "recording_length": 30,
         "recording_interval": 120,
         "prompt_description": "Tänk på att P1 är kanalen för fördjupning, granskning och nyheter när du gör din sammanfattning",
+        "temperature": 0.2,
     },
     {
         "name": "P3",
@@ -80,6 +82,7 @@ CHANNELS = [
         "recording_length": 30,
         "recording_interval": 120,
         "prompt_description": "Tänk på att P3 är kanalen för den musikintresserade publiken som också bjuder på underhållning, nyheter och populärkultur när du gör din sammanfattning.",
+        "temperature": 1,
 
     },
     {
@@ -88,6 +91,7 @@ CHANNELS = [
         "recording_length": 30,
         "recording_interval": 120,
         "prompt_description": "Tänk på att P4-Gotland är en lokalakanal för Gotland. Lägg gärna till lite gotländska i svaret.",
+        "temperature": 1.5,
     }
 ]
 
@@ -631,7 +635,7 @@ def api_docs():
     """
     return render_template_string(html)
 
-def summarize(channel_name, prompt_description, latest=None):
+def summarize(channel_name, prompt_description, channel_temperature, latest=None):
     messages = [
         {
             "role": "system", 
@@ -652,7 +656,7 @@ def summarize(channel_name, prompt_description, latest=None):
             model="gpt-4o-mini",
             messages=messages,
             max_tokens=100,
-            temperature=0.8
+            temperature=channel_temperature
         )
         return response.choices[0].message.content.strip()
     
@@ -668,6 +672,7 @@ def process_channel(channel):
     """Process a single channel continuously."""
     channel_name = channel["name"]
     channel_prompt_description = channel["prompt_description"]
+    channel_temperature = channel.temperature["temperature"]
     stream_url = channel["stream_url"]
     recording_length = channel.get("recording_length", 30)  # Default to 30 seconds
     recording_interval = channel.get("recording_interval", 900)  # Default to 15 minutes
@@ -691,7 +696,7 @@ def process_channel(channel):
             save_transcription(channel_name, text)
             
             # Create summary with context
-            summary = summarize(channel_name, channel_prompt_description, text)
+            summary = summarize(channel_name, channel_prompt_description, channel_temperature, text)
             print(f"✅ Summary generated for {channel_name}")
             
             # Use consistent timezone-aware timestamp for both global variables and Redis
