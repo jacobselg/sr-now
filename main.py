@@ -9,7 +9,7 @@ import signal
 import threading
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from flask import Flask, jsonify
+from flask import Flask, jsonify, render_template_string
 from dotenv import load_dotenv
 import redis
 from urllib.parse import urlparse
@@ -20,6 +20,8 @@ load_dotenv()
 # Initialize Redis connection
 redis_url = os.environ.get('REDIS_URL')
 redis_client = None
+
+# Test
 
 if redis_url:
     try:
@@ -473,6 +475,162 @@ def get_channel_transcriptions(channel_name):
             'transcriptions': []
         }), 500
 
+# OpenAPI specification
+@app.route('/openapi.json', methods=['GET'])
+def openapi_spec():
+    """Return OpenAPI specification for the API."""
+    spec = {
+        "openapi": "3.0.0",
+        "info": {
+            "title": "SR-Now API",
+            "version": "1.0.0",
+            "description": "Sveriges Radio live transcription and summarization API"
+        },
+        "servers": [
+            {
+                "url": f"http://localhost:{os.environ.get('PORT', 5001)}",
+                "description": "Development server"
+            }
+        ],
+        "paths": {
+            "/": {
+                "get": {
+                    "summary": "Get all channels summary",
+                    "description": "Returns summary data for all configured radio channels",
+                    "responses": {
+                        "200": {
+                            "description": "Array of channel summaries",
+                            "content": {
+                                "application/json": {
+                                    "schema": {
+                                        "type": "array",
+                                        "items": {
+                                            "type": "object",
+                                            "properties": {
+                                                "channel": {"type": "string"},
+                                                "summary": {"type": "string"},
+                                                "summary_updated": {"type": "string", "format": "date-time"},
+                                                "summaryUpdateFrequency": {"type": "integer"}
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            "/transcriptions": {
+                "get": {
+                    "summary": "Get all channels transcriptions",
+                    "description": "Returns transcription data for all configured radio channels",
+                    "responses": {
+                        "200": {
+                            "description": "Array of channel transcriptions",
+                            "content": {
+                                "application/json": {
+                                    "schema": {
+                                        "type": "array",
+                                        "items": {
+                                            "type": "object",
+                                            "properties": {
+                                                "channel": {"type": "string"},
+                                                "transcriptions": {
+                                                    "type": "array",
+                                                    "items": {
+                                                        "type": "object",
+                                                        "properties": {
+                                                            "text": {"type": "string"},
+                                                            "time": {"type": "string", "format": "date-time"}
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            "/transcriptions/{channel_name}": {
+                "get": {
+                    "summary": "Get specific channel transcriptions",
+                    "description": "Returns transcription data for a specific radio channel",
+                    "parameters": [
+                        {
+                            "name": "channel_name",
+                            "in": "path",
+                            "required": True,
+                            "schema": {"type": "string"},
+                            "description": "Name of the channel (e.g., P1, P3, P4-Gotland)"
+                        }
+                    ],
+                    "responses": {
+                        "200": {
+                            "description": "Channel transcriptions",
+                            "content": {
+                                "application/json": {
+                                    "schema": {
+                                        "type": "object",
+                                        "properties": {
+                                            "channel": {"type": "string"},
+                                            "transcriptions": {
+                                                "type": "array",
+                                                "items": {
+                                                    "type": "object",
+                                                    "properties": {
+                                                        "text": {"type": "string"},
+                                                        "time": {"type": "string", "format": "date-time"}
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        },
+                        "404": {
+                            "description": "Channel not found",
+                            "content": {
+                                "application/json": {
+                                    "schema": {
+                                        "type": "object",
+                                        "properties": {
+                                            "error": {"type": "string"}
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    return jsonify(spec)
+
+# Scalar API documentation
+@app.route('/docs', methods=['GET'])
+def api_docs():
+    """Serve Scalar API documentation."""
+    html = """
+    <!doctype html>
+    <html>
+      <head>
+        <title>SR-Now API Documentation</title>
+        <meta charset="utf-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1" />
+      </head>
+      <body>
+        <script id="api-reference" data-url="/openapi.json"></script>
+        <script src="https://cdn.jsdelivr.net/npm/@scalar/api-reference"></script>
+      </body>
+    </html>
+    """
+    return render_template_string(html)
+
 def summarize(channel_name, prompt_description, latest=None):
     messages = [
         {
@@ -656,6 +814,8 @@ if __name__ == "__main__":
     print("  GET / - All channels summary")
     print("  GET /transcriptions - All channels transcriptions only")
     print("  GET /transcriptions/<channel_name> - Specific channel transcriptions")
+    print("  GET /docs - API documentation (Scalar)")
+    print("  GET /openapi.json - OpenAPI specification")
     
     # Run Flask app
     app.run(host='0.0.0.0', port=port, debug=False)
