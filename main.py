@@ -76,7 +76,7 @@ CHANNELS = [
         "recording_length": 45,
         "recording_interval": 15,
         "summary_interval": 180, 
-        "prompt_description": "Tänk på att P1 är kanalen för fördjupning, granskning och nyheter när du gör din sammanfattning",
+        "prompt_description": "Tonen på texten bör fokusera på fördjupning, granskning, korrekthet och nyheter.",
         "temperature": 0.2,
     },
     {
@@ -85,7 +85,7 @@ CHANNELS = [
         "recording_length": 45,
         "recording_interval": 15,  
         "summary_interval": 180, 
-        "prompt_description": "Tänk på att P3 är kanalen för den musikintresserade publiken som också bjuder på underhållning, nyheter och populärkultur när du gör din sammanfattning.",
+        "prompt_description": "Tonen på texten bör vara avslappnad, rolig och busig för den musikintresserade publiken. Gör texten lockande och energisk, nästan lite busig.",
         "temperature": 1,
 
     },
@@ -95,7 +95,7 @@ CHANNELS = [
         "recording_length": 45,
         "recording_interval": 15,  
         "summary_interval": 180,  
-        "prompt_description": "Tänk på att P4-Gotland är en lokalakanal för Gotland",
+        "prompt_description": "Tonen på texten bör fokusera på lokal fördjupning, granskning, korrekthet och lokala nyheter, men kan ha en avslappnad ton för lättsammare nyheter där det känns lämpligt.",
         "temperature": 1,
     },
     {
@@ -104,7 +104,7 @@ CHANNELS = [
         "recording_length": 45,
         "recording_interval": 15,
         "summary_interval": 180,  
-        "prompt_description": "Du är en sportkommentator som summerar de senaste sporthändelserna under livesändningen i fotboll mellan Sveriges och Kosovos landslag från Sveriges Radio Sportextra.",
+        "prompt_description": "Tonen på texten bör efterlikna att du är en sportkommentator som summerar de senaste sporthändelserna under livesändningen i fotboll mellan Sveriges och Kosovos landslag från Sveriges Radio Sportextra. Lyft ut de mest spännande ögonblick som hände nyss tex 'Sveriges kvitterar i 65:e minuter' eller 'Rött kort till Kosovo i 70:e minuten' för att göra det mer levande.",
         "temperature": 0.8,
     }
 ]
@@ -515,7 +515,7 @@ def summarize(channel_name, prompt_description, channel_temperature, latest=None
     messages = [
         {
             "role": "system", 
-            "content": f"Du är en journalist på Sveriges Radios kanal {channel_name} som vill få fler att lyssna på livesändningen via vår webbplats. Du kan med hjälp av transkriberingar från pågående livesändning ge korta, korrekta, nyfikna och intressanta summeringar av vad som pågår just nu i livesändningen. Undvik att inkludera information om musik som spelas samt deras texter. Fokusera på gäster, artister, ämnen och händelser som diskuteras. {prompt_description} Håll sammanfattningen under 100 tecken."
+            "content": f"Du är en journalist på Sveriges Radios kanal {channel_name} som vill få fler att lyssna på livesändningen via vår webbplats. Du kan med hjälp av transkriberingar från pågående livesändning ge korta, korrekta, nyfikna och intressanta summeringar av vad som pågår exakt just nu i livesändningen. Undvik att inkludera information om musik som spelas samt deras texter. Fokusera på gäster, artister, ämnen och händelser som diskuteras. Håll sammanfattningen under 100 tecken."
         }
     ]
     
@@ -524,7 +524,7 @@ def summarize(channel_name, prompt_description, channel_temperature, latest=None
 
     messages.append({
         "role": "user",
-        "content": f"Sammanfatta i en journalistiskt kreativt indragande text under 100 tecken vad som händer just nu i Sveriges Radios livesändning baserat på följande transkriberingar, undvik att använda ord som 'lyssna nu' och 'diskuteras': \n\n{latest}\n{context}\n\n"
+        "content": f"Sammanfatta i en indragande text under 100 tecken vad som händer just nu i Sveriges Radios livesändning baserat på följande transkriberingar, undvik att använda ord som 'lyssna nu' och 'diskuteras'. {prompt_description} Transkriberingar: \n\n{latest}\n{context}\n\n"
     })
     
     try:
@@ -552,7 +552,7 @@ def process_channel(channel):
     stream_url = channel["stream_url"]
     recording_length = channel.get("recording_length", 30)  # Default to 30 seconds
     recording_interval = channel.get("recording_interval", 900)  # Default to 15 minutes
-    summary_interval = channel.get("summary_interval", 1800)  # Default to 30 minutes
+    summary_interval = channel.get("summary_interval", 900)  # Default to 30 minutes
     
     # Detect if it's a file or live stream
     is_file = stream_url.lower().endswith(('.mp4', '.m4a', '.mov', '.avi', '.mkv', '.webm', '.3gp'))
