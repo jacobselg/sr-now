@@ -65,6 +65,7 @@ CHANNELS = [
         "stream_url": "https://edge2.sr.se/p1-mp3-96",
         "recording_length": 30,
         "recording_interval": 60,
+        "summary_interval": 180,  
         "prompt_description": "Tänk på att P1 är kanalen för fördjupning, granskning och nyheter när du gör din sammanfattning.",
         "temperature": 0.2,
     }
@@ -72,16 +73,18 @@ CHANNELS = [
     {
         "name": "P1",
         "stream_url": "https://edge2.sr.se/p1-mp3-96",
-        "recording_length": 30,
-        "recording_interval": 120,
+        "recording_length": 45,
+        "recording_interval": 15,
+        "summary_interval": 180, 
         "prompt_description": "Tänk på att P1 är kanalen för fördjupning, granskning och nyheter när du gör din sammanfattning",
         "temperature": 0.2,
     },
     {
         "name": "P3",
         "stream_url": "https://edge2.sr.se/p3-mp3-96",
-        "recording_length": 30,
-        "recording_interval": 900,
+        "recording_length": 45,
+        "recording_interval": 15,  
+        "summary_interval": 180, 
         "prompt_description": "Tänk på att P3 är kanalen för den musikintresserade publiken som också bjuder på underhållning, nyheter och populärkultur när du gör din sammanfattning.",
         "temperature": 1,
 
@@ -89,10 +92,11 @@ CHANNELS = [
     {
         "name": "P4-Gotland",
         "stream_url": "https://edge1.sr.se/p4gotl-mp3-96",
-        "recording_length": 30,
-        "recording_interval": 900,
-        "prompt_description": "Tänk på att P4-Gotland är en lokalakanal för Gotland. Lägg gärna till lite gotländska i svaret.",
-        "temperature": 1.5,
+        "recording_length": 45,
+        "recording_interval": 15,  
+        "summary_interval": 180,  
+        "prompt_description": "Tänk på att P4-Gotland är en lokalakanal för Gotland",
+        "temperature": 1,
     },
 ]
 
@@ -118,6 +122,7 @@ def load_channel_settings():
         # Check for channel-specific environment variables
         length_env_key = f"{channel_name}_RECORDING_LENGTH"
         interval_env_key = f"{channel_name}_RECORDING_INTERVAL"
+        summary_interval_env_key = f"{channel_name}_SUMMARY_INTERVAL"
         
         # Override with environment variables if they exist
         if length_env_key in os.environ:
@@ -134,6 +139,13 @@ def load_channel_settings():
             except ValueError:
                 print(f"⚠️ Invalid {interval_env_key} value, using default")
         
+        if summary_interval_env_key in os.environ:
+            try:
+                channel["summary_interval"] = int(os.environ[summary_interval_env_key])
+                print(f"🔧 Override {channel_name} summary interval: {channel['summary_interval']}s")
+            except ValueError:
+                print(f"⚠️ Invalid {summary_interval_env_key} value, using default")
+        
         # Also check for global fallbacks (for backward compatibility)
         if "RECORDING_LENGTH" in os.environ and "recording_length" not in channel:
             try:
@@ -144,6 +156,12 @@ def load_channel_settings():
         if "RECORDING_INTERVAL" in os.environ and "recording_interval" not in channel:
             try:
                 channel["recording_interval"] = int(os.environ["RECORDING_INTERVAL"])
+            except ValueError:
+                pass
+        
+        if "SUMMARY_INTERVAL" in os.environ and "summary_interval" not in channel:
+            try:
+                channel["summary_interval"] = int(os.environ["SUMMARY_INTERVAL"])
             except ValueError:
                 pass
 
@@ -399,19 +417,26 @@ def signal_handler(signum, frame):
     exit(0)
 
 def process_channel(channel):
-    """Process a single channel continuously."""
+    """Process a single channel continuously with separate recording and summary intervals."""
     channel_name = channel["name"]
     channel_prompt_description = channel["prompt_description"]
     channel_temperature = channel["temperature"]
     stream_url = channel["stream_url"]
     recording_length = channel.get("recording_length", 30)  # Default to 30 seconds
     recording_interval = channel.get("recording_interval", 900)  # Default to 15 minutes
+    summary_interval = channel.get("summary_interval", 1800)  # Default to 30 minutes
     
     print(f"🔄 Background processing thread started for {channel_name}")
-    print(f"⚙️ {channel_name} settings: {recording_length}s recording, {recording_interval}s interval")
+    print(f"⚙️ {channel_name} settings: {recording_length}s recording every {recording_interval}s, summary every {summary_interval}s")
+    
+    # Track when the next summary should be generated
+    next_summary_time = datetime.now(timezone.utc) + timedelta(seconds=summary_interval)
     
     while True:
         chunk_path = None
+        current_time = datetime.now(timezone.utc)
+        should_generate_summary = current_time >= next_summary_time
+        
         try:
             print(f"🎙️ Starting audio capture for {channel_name}...")
             
@@ -422,26 +447,38 @@ def process_channel(channel):
             text = transcribe(chunk_path)
             print(f"✅ Transcription complete for {channel_name}")
             
-            # Save the transcription
+            # Always save the transcription
             save_transcription(channel_name, text)
             
-            # Create summary with context
-            summary = summarize(channel_name, channel_prompt_description, channel_temperature, text)
-            print(f"✅ Summary generated for {channel_name}")
-            
-            # Use consistent timezone-aware timestamp for both global variables and Redis
-            update_time = datetime.now(timezone.utc)
-            
-            # Update global variables
-            channel_summaries[channel_name] = summary
-            channel_last_updated[channel_name] = update_time
-            processing_status[channel_name] = "Running"
-            
-            # Save summary to Redis for persistence with same timestamp
-            save_latest_summary_to_redis(channel_name, summary, update_time)
-            
-            # Display only the summary
-            print(f"📻 {channel_name}: {summary}")
+            # Only generate summary if it's time to do so
+            if should_generate_summary:
+                print(f"📝 Generating summary for {channel_name} (summary interval reached)...")
+                
+                # Create summary with context
+                summary = summarize(channel_name, channel_prompt_description, channel_temperature, text)
+                print(f"✅ Summary generated for {channel_name}")
+                
+                # Use consistent timezone-aware timestamp for both global variables and Redis
+                update_time = datetime.now(timezone.utc)
+                
+                # Update global variables
+                channel_summaries[channel_name] = summary
+                channel_last_updated[channel_name] = update_time
+                processing_status[channel_name] = "Running"
+                
+                # Save summary to Redis for persistence with same timestamp
+                save_latest_summary_to_redis(channel_name, summary, update_time)
+                
+                # Display the summary
+                print(f"📻 {channel_name}: {summary}")
+                
+                # Schedule next summary
+                next_summary_time = update_time + timedelta(seconds=summary_interval)
+                print(f"⏰ Next summary for {channel_name} scheduled for {next_summary_time.strftime('%H:%M:%S')}")
+            else:
+                # Just log the transcription without generating summary
+                print(f"� {channel_name} transcription saved (next summary at {next_summary_time.strftime('%H:%M:%S')})")
+                processing_status[channel_name] = "Recording"
             
         except Exception as e:
             # Log errors for debugging but continue processing
@@ -450,22 +487,27 @@ def process_channel(channel):
             # Use consistent timezone-aware timestamp for error handling
             error_time = datetime.now(timezone.utc)
             
-            # Set fallback summary
-            error_message = f"Processing error occurred: {str(e)[:100]}"
-            channel_summaries[channel_name] = error_message
-            channel_last_updated[channel_name] = error_time
-            processing_status[channel_name] = f"Error: {str(e)[:50]}"
+            # Set fallback summary only if we were supposed to generate one
+            if should_generate_summary:
+                error_message = f"Processing error occurred: {str(e)[:100]}"
+                channel_summaries[channel_name] = error_message
+                channel_last_updated[channel_name] = error_time
+                
+                # Save error summary to Redis for persistence with same timestamp
+                save_latest_summary_to_redis(channel_name, error_message, error_time)
+                
+                # Still schedule next summary attempt
+                next_summary_time = error_time + timedelta(seconds=summary_interval)
             
-            # Save error summary to Redis for persistence with same timestamp
-            save_latest_summary_to_redis(channel_name, error_message, error_time)
+            processing_status[channel_name] = f"Error: {str(e)[:50]}"
             
         finally:
             # Clean up temporary file
             if chunk_path and os.path.exists(chunk_path):
                 os.unlink(chunk_path)
         
-        # Wait for the channel-specific interval before next iteration
-        print(f"⏳ {channel_name}: Waiting {recording_interval} seconds for next capture...")
+        # Wait for the recording interval before next iteration
+        print(f"⏳ {channel_name}: Waiting {recording_interval} seconds for next recording...")
         time.sleep(recording_interval)
 
 def start_all_channels():
@@ -504,7 +546,10 @@ if __name__ == "__main__":
     
     # Display channel configurations
     for channel in CHANNELS:
-        print(f"⚙️ {channel['name']}: {channel.get('recording_length', 30)}s recording every {channel.get('recording_interval', 900)}s")
+        recording_length = channel.get('recording_length', 30)
+        recording_interval = channel.get('recording_interval', 900)
+        summary_interval = channel.get('summary_interval', 1800)
+        print(f"⚙️ {channel['name']}: {recording_length}s recording every {recording_interval}s, summary every {summary_interval}s")
     
     # Test Redis connection
     if redis_client:

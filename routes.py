@@ -28,13 +28,16 @@ def register_routes(app, CHANNELS, channel_summaries, channel_last_updated,
                 # Rename 'updated' field to 'summary_updated' for consistency
                 if 'updated' in channel_data:
                     channel_data['summary_updated'] = channel_data.pop('updated')
+                # Add summary interval from channel config
+                if 'summaryUpdateFrequency' not in channel_data:
+                    channel_data['summaryUpdateFrequency'] = channel.get('summary_interval', 1800)
             else:
                 # Fallback to global variables if Redis is empty
                 channel_data = {
                     'channel': channel_name,
                     'summary': channel_summaries.get(channel_name),
                     'summaryUpdated': channel_last_updated.get(channel_name).isoformat() if channel_last_updated.get(channel_name) else None,
-                    'summaryUpdateFrequency': channel.get('recording_interval')
+                    'summaryUpdateFrequency': channel.get('summary_interval', 1800)
                 }
             
             channels_array.append(channel_data)

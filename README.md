@@ -134,27 +134,32 @@ OpenAPI 3.0 specification for the API.
 - `ENV` - Set to `local` for local development (reduces channels to P1 only)
 - `API_BASE_URL` - Override base URL for API documentation
 
-#### Optional - Recording Configuration
+#### Optional - Recording & Summary Configuration
 
 **Global Defaults:**
 - `RECORDING_LENGTH` - Seconds to record per cycle (default: 30)
 - `RECORDING_INTERVAL` - Seconds between recordings (default: 120 for production, 60 for local)
+- `SUMMARY_INTERVAL` - Seconds between summary generation (default: 1800/30min for production, 300/5min for local)
 
 **Channel-Specific Overrides:**
 - `{CHANNEL}_RECORDING_LENGTH` - Per-channel recording length (e.g., `P1_RECORDING_LENGTH=45`)
-- `{CHANNEL}_RECORDING_INTERVAL` - Per-channel interval (e.g., `P3_RECORDING_INTERVAL=180`)
+- `{CHANNEL}_RECORDING_INTERVAL` - Per-channel recording interval (e.g., `P3_RECORDING_INTERVAL=180`)
+- `{CHANNEL}_SUMMARY_INTERVAL` - Per-channel summary interval (e.g., `P1_SUMMARY_INTERVAL=600`)
 
 **Examples:**
 ```bash
 # Global settings
 export RECORDING_LENGTH=45
 export RECORDING_INTERVAL=180
+export SUMMARY_INTERVAL=900
 
 # Channel-specific settings
 export P1_RECORDING_LENGTH=30
 export P1_RECORDING_INTERVAL=120
+export P1_SUMMARY_INTERVAL=600
 export P3_RECORDING_LENGTH=45
 export P3_RECORDING_INTERVAL=300
+export P3_SUMMARY_INTERVAL=1800
 ```
 
 ### Local vs Production Configuration
@@ -203,19 +208,34 @@ CMD ["python", "main.py"]
 ### Core Components
 
 1. **Channel Processing Threads**: Each channel runs in its own background thread
-2. **Audio Recording**: FFmpeg-based stream recording in 30-second chunks  
-3. **Transcription Pipeline**: OpenAI Whisper for speech-to-text
-4. **Summarization Engine**: GPT-4 with channel-specific prompts and context
-5. **Redis Persistence**: Stores transcriptions and summaries for recovery
-6. **Flask API**: RESTful endpoints for data access
-7. **Real-time Updates**: Continuous monitoring with configurable intervals
+2. **Dual-Interval System**: Separate configurable intervals for recording and summary generation
+3. **Audio Recording**: FFmpeg-based stream recording in 30-second chunks  
+4. **Transcription Pipeline**: OpenAI Whisper for speech-to-text (every recording cycle)
+5. **Summarization Engine**: GPT-4 with channel-specific prompts and context (configurable interval)
+6. **Redis Persistence**: Stores transcriptions and summaries for recovery
+7. **Flask API**: RESTful endpoints for data access
+8. **Real-time Updates**: Continuous monitoring with independent recording/summary schedules
 
 ### Data Flow
 
 ```
-Radio Stream → FFmpeg Recording → Whisper Transcription → 
-Context Building → GPT Summarization → Redis Storage → API Response
+Radio Stream → FFmpeg Recording (every recording_interval) → Whisper Transcription → Redis Storage
+                                    ↓
+Transcription History → Context Building → GPT Summarization (every summary_interval) → 
+                                    ↓
+                              Redis Storage → API Response
 ```
+
+### Processing Schedule Example
+- **P1**: Record every 2 minutes, summarize every 10 minutes
+- **P3**: Record every 5 minutes, summarize every 30 minutes  
+- **P4-Gotland**: Record every 5 minutes, summarize every 30 minutes
+
+### Benefits of Dual-Interval System
+- **Cost Optimization**: Reduce OpenAI API calls by summarizing less frequently than recording
+- **Better Context**: More transcription data available for each summary
+- **Flexible Scheduling**: News channels can summarize more often than music channels
+- **Resource Management**: Balance between real-time updates and processing costs
 
 ## 🛠️ Development
 
@@ -240,9 +260,10 @@ Edit the `CHANNELS` configuration in `main.py`:
     "name": "NewChannel",
     "stream_url": "https://example.com/stream.m3u8",
     "recording_length": 30,
-    "recording_interval": 120,
+    "recording_interval": 120,      # Record every 2 minutes
+    "summary_interval": 600,        # Summarize every 10 minutes
     "prompt_description": "Channel-specific context for summarization",
-    "temperature": 0.5,  # GPT creativity level (0.0-2.0)
+    "temperature": 0.5,             # GPT creativity level (0.0-2.0)
 }
 ```
 
