@@ -61,13 +61,13 @@ processing_status = {}
 # Channel configuration - can be moved to environment variables later
 CHANNELS = [
     {
-        "name": "P1",
-        "stream_url": "https://edge2.sr.se/p1-mp3-96",
+        "name": "Sportextra",
+        "stream_url": "https://lyssna-cdn.sr.se/Autorec/ET2W/P4/Sportextra/2025/10/SRP4RIKS_2025-10-13_190000_15300_a96.m4a",
         "recording_length": 30,
         "recording_interval": 60,
-        "summary_interval": 180,  
-        "prompt_description": "Tänk på att P1 är kanalen för fördjupning, granskning och nyheter när du gör din sammanfattning.",
-        "temperature": 0.2,
+        "summary_interval": 60,  
+        "prompt_description": "",
+        "temperature": 0.8,
     }
 ] if (os.environ['ENV'] == 'local') else [
     {
@@ -98,10 +98,20 @@ CHANNELS = [
         "prompt_description": "Tänk på att P4-Gotland är en lokalakanal för Gotland",
         "temperature": 1,
     },
+    {
+        "name": "Sportextra",
+        "stream_url": "https://lyssna-cdn.sr.se/Autorec/ET2W/P4/Sportextra/2025/10/SRP4RIKS_2025-10-13_190000_15300_a96.m4a",
+        "recording_length": 45,
+        "recording_interval": 15,
+        "summary_interval": 60,  
+        "prompt_description": "Du är en sportkommentator som summerar de senaste sporthändelserna under livesändningen i fotboll mellan Sveriges och Kosovos landslag från Sveriges Radio Sportextra.",
+        "temperature": 0.8,
+    }
 ]
 
 REDIS_KEY_PREFIX = "sr_now:transcriptions"
 REDIS_SUMMARY_KEY_PREFIX = "sr_now:summary"
+REDIS_FILE_POSITION_PREFIX = "sr_now:file_position"
 
 def parse_timestamp_safely(timestamp_str):
     """Parse timestamp string and ensure it's timezone-aware (UTC if none specified)."""
@@ -210,6 +220,41 @@ def save_latest_summary_to_redis(channel_name, summary, timestamp=None):
         
     except Exception as e:
         print(f"⚠️ Could not save latest summary for {channel_name} to Redis: {e}")
+
+def get_file_position_from_redis(channel_name):
+    """Get the current file position from Redis for a specific channel."""
+    if not redis_client:
+        return 0
+        
+    try:
+        redis_key = f"{REDIS_FILE_POSITION_PREFIX}:{channel_name}"
+        position_data = redis_client.get(redis_key)
+        if position_data:
+            data = json.loads(position_data)
+            return data.get('position', 0)
+        return 0
+    except Exception as e:
+        print(f"⚠️ Could not load file position for {channel_name} from Redis: {e}")
+        return 0
+
+def save_file_position_to_redis(channel_name, position):
+    """Save the current file position to Redis for a specific channel."""
+    if not redis_client:
+        return
+        
+    try:
+        position_data = {
+            "position": position,
+            "updated": datetime.now(timezone.utc).isoformat(),
+            "channel": channel_name
+        }
+        
+        redis_key = f"{REDIS_FILE_POSITION_PREFIX}:{channel_name}"
+        # Save to Redis with no expiration (persist until overwritten)
+        redis_client.set(redis_key, json.dumps(position_data))
+        
+    except Exception as e:
+        print(f"⚠️ Could not save file position for {channel_name} to Redis: {e}")
 
 def load_transcription_history(channel_name=None):
     """Load transcription history from Redis for a specific channel or all channels."""
@@ -329,6 +374,72 @@ def get_recent_context(channel_name, minutes=15):
     
     return "\n".join(context_parts)
 
+def get_audio_chunk_from_file(file_url, seconds=30, start_position=0):
+    """Extract audio chunk from a file starting at a specific position."""
+    try:
+        # Create temporary file that persists after the context manager
+        tmp = tempfile.NamedTemporaryFile(suffix=".wav", delete=False)
+        tmp_path = tmp.name
+        tmp.close()
+
+        print(f"🎬 Extracting {seconds}s from file starting at {start_position}s")
+        cmd = [
+            "ffmpeg", "-y",
+            "-ss", str(start_position),   # Start position
+            "-i", file_url,
+            "-t", str(seconds),           # Duration
+            "-ac", "1",                   # Mono audio
+            "-ar", "16000",               # 16kHz sample rate (optimal for Whisper)
+            "-f", "wav",                  # WAV format for better compatibility
+            tmp_path
+        ]
+
+        result = subprocess.run(
+            cmd, 
+            capture_output=True, 
+            text=True, 
+            timeout=seconds + 30  # Longer timeout for file processing
+        )
+
+        if result.returncode != 0:
+            # Check if error indicates we've reached end of file
+            stderr_lower = result.stderr.lower()
+            if any(phrase in stderr_lower for phrase in [
+                'invalid seek position',
+                'seek past end of file', 
+                'end of file',
+                'no frames to encode',
+                'duration is 0'
+            ]):
+                print(f"📄 Reached end of file at position {start_position}s")
+                # Clean up temp file
+                if os.path.exists(tmp_path):
+                    os.unlink(tmp_path)
+                return None  # Signal end of file
+            else:
+                raise subprocess.CalledProcessError(
+                    result.returncode, 
+                    cmd, 
+                    output=result.stdout, 
+                    stderr=result.stderr
+                )
+
+        # Check if the output file was created and has meaningful content
+        if not os.path.exists(tmp_path) or os.path.getsize(tmp_path) < 1000:  # Less than 1KB suggests empty/minimal audio
+            print(f"📄 Empty or minimal audio extracted at position {start_position}s - likely end of file")
+            if os.path.exists(tmp_path):
+                os.unlink(tmp_path)
+            return None  # Signal end of file
+
+        return tmp_path
+
+    except subprocess.TimeoutExpired:
+        raise Exception(f"File processing timed out after {seconds + 30} seconds")
+    except subprocess.CalledProcessError as e:
+        raise Exception(f"Failed to process file: {e.stderr}")
+    except Exception as e:
+        raise
+
 def get_audio_chunk(stream_url, seconds=30):
     try:
         # Create temporary file that persists after the context manager
@@ -336,19 +447,36 @@ def get_audio_chunk(stream_url, seconds=30):
         tmp_path = tmp.name
         tmp.close()
 
-        # Improved ffmpeg command for better live stream handling
-        cmd = [
-            "ffmpeg", "-y",
-            "-i", stream_url,
-            "-t", str(seconds),
-            "-ac", "1",           # Mono audio
-            "-ar", "16000",       # 16kHz sample rate (optimal for Whisper)
-            "-f", "wav",          # WAV format for better compatibility
-            "-reconnect", "1",    # Reconnect on connection loss
-            "-reconnect_streamed", "1",
-            "-reconnect_delay_max", "5",
-            tmp_path
-        ]
+        # Detect if it's a file (MP4, etc.) or live stream
+        is_file = stream_url.lower().endswith(('.mp4', '.m4a', '.mov', '.avi', '.mkv', '.webm', '.3gp'))
+        
+        if is_file:
+            # Handle MP4 and other video/audio files
+            print(f"🎬 Processing file: {stream_url}")
+            cmd = [
+                "ffmpeg", "-y",
+                "-i", stream_url,
+                "-t", str(seconds),
+                "-ac", "1",           # Mono audio
+                "-ar", "16000",       # 16kHz sample rate (optimal for Whisper)
+                "-f", "wav",          # WAV format for better compatibility
+                tmp_path
+            ]
+        else:
+            # Handle live streams with reconnection parameters
+            print(f"📡 Processing live stream: {stream_url}")
+            cmd = [
+                "ffmpeg", "-y",
+                "-i", stream_url,
+                "-t", str(seconds),
+                "-ac", "1",           # Mono audio
+                "-ar", "16000",       # 16kHz sample rate (optimal for Whisper)
+                "-f", "wav",          # WAV format for better compatibility
+                "-reconnect", "1",    # Reconnect on connection loss
+                "-reconnect_streamed", "1",
+                "-reconnect_delay_max", "5",
+                tmp_path
+            ]
 
         result = subprocess.run(
             cmd, 
@@ -368,9 +496,9 @@ def get_audio_chunk(stream_url, seconds=30):
         return tmp_path
 
     except subprocess.TimeoutExpired:
-        raise Exception(f"Recording timed out after {seconds + 30} seconds")
+        raise Exception(f"Recording timed out after {seconds + 10} seconds")
     except subprocess.CalledProcessError as e:
-        raise Exception(f"Failed to record audio: {e.stderr}")
+        raise Exception(f"Failed to process audio: {e.stderr}")
     except Exception as e:
         raise
 
@@ -426,8 +554,26 @@ def process_channel(channel):
     recording_interval = channel.get("recording_interval", 900)  # Default to 15 minutes
     summary_interval = channel.get("summary_interval", 1800)  # Default to 30 minutes
     
+    # Detect if it's a file or live stream
+    is_file = stream_url.lower().endswith(('.mp4', '.m4a', '.mov', '.avi', '.mkv', '.webm', '.3gp'))
+    
+    # Load file position from Redis for files, or start at 0
+    if is_file:
+        file_position = get_file_position_from_redis(channel_name)
+        if file_position > 0:
+            print(f"📂 {channel_name}: Resuming from position {file_position}s (loaded from Redis)")
+        else:
+            print(f"📂 {channel_name}: Starting from beginning of file")
+    else:
+        file_position = 0
+    
     print(f"🔄 Background processing thread started for {channel_name}")
     print(f"⚙️ {channel_name} settings: {recording_length}s recording every {recording_interval}s, summary every {summary_interval}s")
+    
+    if is_file:
+        print(f"🎬 {channel_name} is processing file: {stream_url}")
+    else:
+        print(f"📡 {channel_name} is processing live stream: {stream_url}")
     
     # Track when the next summary should be generated
     next_summary_time = datetime.now(timezone.utc) + timedelta(seconds=summary_interval)
@@ -441,14 +587,47 @@ def process_channel(channel):
             print(f"🎙️ Starting audio capture for {channel_name}...")
             
             # Record and transcribe new audio using channel-specific length
-            chunk_path = get_audio_chunk(stream_url, recording_length)
+            if is_file:
+                chunk_path = get_audio_chunk_from_file(stream_url, recording_length, file_position)
+                
+                # Check if we reached the end of the file
+                if chunk_path is None:
+                    print(f"🔄 {channel_name}: Reached end of file, restarting from beginning")
+                    file_position = 0
+                    # Save reset position to Redis
+                    save_file_position_to_redis(channel_name, file_position)
+                    # Try extracting from the beginning
+                    chunk_path = get_audio_chunk_from_file(stream_url, recording_length, file_position)
+                    if chunk_path is None:
+                        raise Exception("Unable to extract audio even from beginning of file")
+                
+                # Update file position for next iteration and save to Redis
+                file_position += recording_length
+                save_file_position_to_redis(channel_name, file_position)
+            else:
+                chunk_path = get_audio_chunk(stream_url, recording_length)
+                
             print(f"✅ Audio captured for {channel_name}, transcribing...")
             
             text = transcribe(chunk_path)
             print(f"✅ Transcription complete for {channel_name}")
             
-            # Always save the transcription
-            save_transcription(channel_name, text)
+            # Check if we got valid transcription (not empty or too short)
+            if not text or len(text.strip()) < 10:
+                if is_file:
+                    print(f"⚠️ {channel_name}: Short/empty transcription, trying to restart from beginning")
+                    # Reset to beginning of file if we've reached the end
+                    file_position = 0
+                    save_file_position_to_redis(channel_name, file_position)
+                    print(f"🔄 {channel_name}: Resetting to beginning of file")
+                    # Wait a bit longer before restarting to avoid rapid looping
+                    time.sleep(5)
+                else:
+                    print(f"⚠️ {channel_name}: Short/empty transcription from live stream")
+            
+            # Always save the transcription if we have text
+            if text and text.strip():
+                save_transcription(channel_name, text)
             
             # Only generate summary if it's time to do so
             if should_generate_summary:
