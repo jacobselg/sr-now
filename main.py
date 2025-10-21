@@ -103,7 +103,7 @@ CHANNELS = [
         "stream_url": "https://lyssna-cdn.sr.se/Autorec/ET2W/P4/Sportextra/2025/10/SRP4RIKS_2025-10-13_190000_15300_a96.m4a",
         "recording_length": 45,
         "recording_interval": 15,
-        "summary_interval": 60,  
+        "summary_interval": 180,  
         "prompt_description": "Du är en sportkommentator som summerar de senaste sporthändelserna under livesändningen i fotboll mellan Sveriges och Kosovos landslag från Sveriges Radio Sportextra.",
         "temperature": 0.8,
     }
