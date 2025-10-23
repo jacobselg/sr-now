@@ -75,7 +75,7 @@ CHANNELS = [
         "stream_url": "https://edge2.sr.se/p1-mp3-96",
         "recording_length": 45,
         "recording_interval": 15,
-        "summary_interval": 300, 
+        "summary_interval": 120, 
         "prompt_description": "Tonen på texten bör fokusera på fördjupning, granskning, korrekthet och nyheter.",
         "temperature": 0.2,
     },
@@ -84,7 +84,7 @@ CHANNELS = [
         "stream_url": "https://edge2.sr.se/p3-mp3-96",
         "recording_length": 45,
         "recording_interval": 15,  
-        "summary_interval": 300, 
+        "summary_interval": 120, 
         "prompt_description": "Tonen på texten bör vara avslappnad, rolig och busig för den musikintresserade publiken. Gör texten lockande och energisk, nästan lite busig.",
         "temperature": 1,
 
@@ -103,7 +103,7 @@ CHANNELS = [
         "stream_url": "https://lyssna-cdn.sr.se/Autorec/ET2W/P4/Sportextra/2025/10/SRP4RIKS_2025-10-13_190000_15300_a96.m4a",
         "recording_length": 45,
         "recording_interval": 15,
-        "summary_interval": 300,  
+        "summary_interval": 60,  
         "prompt_description": "Tonen på texten bör efterlikna att du är en sportkommentator som summerar de senaste sporthändelserna under livesändningen i fotboll mellan Sveriges och Kosovos landslag från Sveriges Radio Sportextra. Lyft ut de mest spännande ögonblick som hände nyss tex 'Sveriges kvitterar i 65:e minuter' eller 'Rött kort till Kosovo i 70:e minuten' för att göra det mer levande.",
         "temperature": 0.8,
     }
