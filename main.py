@@ -585,6 +585,8 @@ def process_channel(channel):
         
         try:
             print(f"🎙️ Starting audio capture for {channel_name}...")
+
+            recordingTime = datetime.now(timezone.utc)
             
             # Record and transcribe new audio using channel-specific length
             if is_file:
@@ -627,7 +629,7 @@ def process_channel(channel):
             
             # Always save the transcription if we have text
             if text and text.strip():
-                save_transcription(channel_name, text)
+                save_transcription(channel_name, text, recordingTime)
             
             # Only generate summary if it's time to do so
             if should_generate_summary:
